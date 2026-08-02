@@ -92,7 +92,7 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
         # حساب وقف الخسارة المشدد (3%)
-        stop_loss = round(price * 0.97, 2)
+    stop_loss = round(price * 0.97, 2)
         
         # حساب توزيع الهرم التجميعي (40% / 35% / 25%)
         ratios = {1: 0.40, 2: 0.35, 3: 0.25}
