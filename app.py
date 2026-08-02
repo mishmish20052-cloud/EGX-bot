@@ -95,7 +95,7 @@ if __name__ == '__main__':
     stop_loss = round(price * 0.97, 2)
         
         # حساب توزيع الهرم التجميعي (40% / 35% / 25%)
-        ratios = {1: 0.40, 2: 0.35, 3: 0.25}
+    ratios = {1: 0.40, 2: 0.35, 3: 0.25}
         current_ratio = ratios.get(stage, 0.40)
         entry_amount = total_capital * current_ratio
         max_loss = entry_amount * 0.03  # المخاطرة الكلية للمحفظة 1.2%
