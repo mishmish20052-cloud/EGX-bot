@@ -114,8 +114,8 @@ if __name__ == '__main__':
             f"⚡ *إشارة آلية من TradingView*"
         )
         
-        send_telegram(msg)
-        return jsonify({"status": "success"}), 200
+    send_telegram(msg)
+    return jsonify({"status": "success"}), 200
 
     except Exception as e:
         print(f"Webhook error: {e}")
