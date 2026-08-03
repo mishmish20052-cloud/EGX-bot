@@ -1,96 +1,145 @@
-import os
-from flask import Flask, request, jsonify
 import requests
+import json
+import os
+from datetime import datetime
 
-app = Flask(__name__)
+# بيانات بوت تليجرام
+TELEGRAM_TOKEN = os.environ.get("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
+TELEGRAM_CHAT_ID = os.environ.get("5418506244", "5418506244")
 
-# استدعاء البيانات السرية من متغيرات البيئة
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+EGX33_STOCKS = [
+    "ABUK", "MFPC", "SKPC", "AMOC", "KPRE", "MBSC", "SCEM",
+    "TMGH", "OCDI", "MASR", "EMFD", "ORAS", "ORHD", "HELI",
+    "CLHO", "ISPH", "RMDA", "PHAR", "JUFO", "OLFI", "SUGR",
+    "EFID", "EFIH", "FWRY", "ETEL", "ALCN", "CSAG", "ORWE",
+    "ARAB", "CICH", "AUTO", "EALR", "ESRS"
+]
 
-def send_telegram(message):
-    """دالة إرسال الإشعار لتطبيق التليجرام"""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID, 
-        "text": message, 
-        "parse_mode": "Markdown"
-    }
+def send_telegram_message(message):
+    if not TELEGRAM_TOKEN or TELEGRAM_TOKEN.startswith("ضع_"):
+        print("⚠️ لم يتم تعيين TELEGRAM_TOKEN")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Error sending message: {e}")
+        print(f"❌ خطأ تليجرام: {e}")
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """مستقبل الإشارات الآلية من تريدينج فيو وإدارة المخاطر الديناميكية"""
+def fetch_tv_data(symbol):
+    url = "https://scanner.tradingview.com/egypt/scan"
+    payload = {
+        "symbols": {"tickers": [f"EGX:{symbol}"]},
+        "columns": [
+            "close", "open", "high", "low", "volume",
+            "EMA50", "EMA25", "RSI", "MACD.macd", "MACD.signal", "volume|20"
+        ]
+    }
     try:
-        data = request.get_json(force=True)
-        ticker = data.get('ticker', 'UNKNOWN')
-        price = float(data.get('price', 0.0))
-        stage = int(data.get('stage', 1))
-        score = int(data.get('score', 80)) # درجة السهم من 100
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if data and "data" in data and len(data["data"]) > 0:
+                v = data["data"][0]["d"]
+                return {
+                    "close": v[0], "open": v[1], "high": v[2], "low": v[3], "volume": v[4],
+                    "EMA50": v[5], "EMA25": v[6], "RSI": v[7], "MACD": v[8],
+                    "MACD_Signal": v[9], "Vol_SMA": v[10]
+                }
+    except Exception:
+        pass
+    return None
+
+def analyze_stock(symbol):
+    data = fetch_tv_data(symbol)
+    if not data or not data['close'] or not data['EMA50']:
+        return None
+    
+    # 1. فلتر الاتجاه الصاعد اليومي
+    if data['close'] <= data['EMA50']:
+        return None
+
+    score = 0
+    details = []
+
+    # 2. تقييم EMA25 (20 نقطة)
+    if data['EMA25'] and data['close'] > data['EMA25']:
+        score += 20
+        details.append("أعلى من EMA25")
+
+    # 3. تقييم RSI والديناميكية الفتية (25 نقطة)
+    rsi_val = data['RSI']
+    if rsi_val:
+        if 50 <= rsi_val <= 62: # المنطقة الذهبية للزخم الخالي من الإشباع
+            score += 25
+            details.append(f"RSI مثالي [{rsi_val:.1f}]")
+        elif 48 <= rsi_val <= 68:
+            score += 15
+            details.append(f"RSI مقبول [{rsi_val:.1f}]")
+
+    # 4. تقييم MACD (20 نقطة)
+    if data['MACD'] and data['MACD_Signal'] and data['MACD'] > data['MACD_Signal']:
+        score += 20
+        details.append("MACD إيجابي")
+
+    # 5. حساب الـ RVOL وتقييم السيولة (حتى 25 نقطة)
+    rvol = 0.0
+    if data['volume'] and data['Vol_SMA'] and data['Vol_SMA'] > 0:
+        rvol = round(data['volume'] / data['Vol_SMA'], 2)
         
-        # استلام راس المال المتوفر حالياً من الإشارة بدلاً من القيمة الثابتة
-        total_portfolio = float(data.get('capital', 100000))
+        if rvol >= 2.0:
+            score += 25
+            details.append(f"🔥 سيولة انفجارية (RVOL: {rvol}x)")
+        elif rvol >= 1.3:
+            score += 15
+            details.append(f"⚡ سيولة مرتفعة (RVOL: {rvol}x)")
+        elif rvol >= 1.0:
+            score += 10
+            details.append(f"سيولة أعلى من المتوسط (RVOL: {rvol}x)")
 
-        if price <= 0:
-            return jsonify({"status": "invalid price"}), 400
+    # 6. إغلاق ساعة صاعد (10 نقاط)
+    if data['close'] > data['open']:
+        score += 10
+        details.append("إغلاق صاعد")
 
-        # 1. تحديد الحجم الأقصى المخصص للسهم بناءً على درجته ورأس المال المتوفر
-        if score >= 85:
-            allocated_capital = total_portfolio * 0.40  # 40% كحد أقصى للسهم الماسي
-            grade_label = "💎 ماسي (Grade A+)"
-        elif score >= 70:
-            allocated_capital = total_portfolio * 0.30  # 30% كحد أقصى للسهم الذهبي
-            grade_label = "🥇 ذهبي (Grade A)"
-        else:
-            allocated_capital = total_portfolio * 0.20  # 20% كحد أقصى للسهم الفضي
-            grade_label = "🥈 فضي (Grade B)"
+    return {
+        "ticker": symbol,
+        "score": score,
+        "rvol": rvol,
+        "price": round(float(data['close']), 2),
+        "details": details
+    }
 
-        # 2. حساب مبلغ مرحلة الدخول الحالية (40% / 35% / 25%)
-        ratios = {1: 0.40, 2: 0.35, 3: 0.25}
-        current_ratio = ratios.get(stage, 0.40)
+def main():
+    print(f"🔍 بدء تشغيل الفحص المباشر المطور: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    signals = []
+    for stock in EGX33_STOCKS:
+        res = analyze_stock(stock)
+        # تشديد شرط الفحص إلى 80+ نقطة بعد إضافة وزن الـ RVOL
+        if res and res['score'] >= 80:
+            signals.append(res)
+
+    if signals:
+        # 🎯 الترتيب التلقائي: من الأعلى تقييماً ثم الأكبر في الـ RVOL
+        signals.sort(key=lambda x: (x['score'], x['rvol']), reverse=True)
+
+        alert_msg = f"🚀 *تنبيه الفرص المرتبة - البورصة المصرية (EGX33)*\n🗓 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
         
-        entry_amount = allocated_capital * current_ratio
-        number_of_shares = int(entry_amount / price) # عدد الأسهم الصحيح بدون كسور
-        actual_cost = number_of_shares * price
-
-        # 3. حساب وقف الخسارة المشدد (3%) والمخاطرة الماليّة
-        stop_loss = round(price * 0.97, 2)
-        max_loss = actual_cost * 0.03 
-
-        # 4. صياغة إشعار التنبيه الذكي والمنظم
-        msg = (
-            f"🚨 **إشارة شراء جديدة (البورصة المصرية)**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 **السهم:** `{ticker}` (متوافق شرعاً ✅)\n"
-            f"🏆 **تقييم الفرصة:** {grade_label} ({score}/100)\n"
-            f"📊 **مرحلة الدخول:** المرحلة {stage} ({int(current_ratio * 100)}%)\n"
-            f"💼 **المبلغ المتوفر للتداول:** `{total_portfolio:,.0f} ج.م`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💵 **سعر الشراء الحالي:** `{price:.2f} ج.م`\n"
-            f"🎯 **عدد الأسهم المطلوب شراؤها:** `{number_of_shares:,} سهم`\n"
-            f"💰 **إجمالي المبلغ المطلوب الآن:** `{actual_cost:,.0f} ج.م`\n"
-            f"🛑 **وقف الخسارة (3%):** `{stop_loss:.2f} ج.م`\n"
-            f"📉 **أقصى مخاطرة للصفقة:** `{max_loss:,.0f} ج.م`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 *ملاحظة: المسموح به 3 صفقات مفتوحة كحد أقصى في وقت واحد.*"
-        )
+        for rank, s in enumerate(signals, 1):
+            medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else "📌"
+            alert_msg += (
+                f"{medal} *الترتيب #{rank}:* `{s['ticker']}`\n"
+                f"📊 *التقييم الإجمالي:* {s['score']}/100 | *RVOL:* {s['rvol']}x\n"
+                f"💵 *السعر:* {s['price']} ج.م\n"
+                f"📈 *المؤشرات:* {', '.join(s['details'])}\n"
+                f"----------------------------------------\n"
+            )
         
-        send_telegram(msg)
-        return jsonify({"status": "success"}), 200
+        send_telegram_message(alert_msg)
+        print(f"✅ تم إرسال {len(signals)} فرص مرتبة بنجاح للتليجرام.")
+    else:
+        print("⚡ لا توجد فرص تنطبق عليها الشروط المتقدمة حالياً.")
 
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/', methods=['GET'])
-def home():
-    """نقطة الفحص للتأكد من تشغيل السيرفر"""
-    return "EGX Trading Bot is Running!", 200
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
-        
+if __name__ == "__main__":
+    main()
+    
