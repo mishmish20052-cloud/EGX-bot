@@ -8,21 +8,20 @@ import requests
 from tradingview_ta import TA_Handler, Interval
 
 # ---------------------------------------------------------
-# 1. الإعدادات والمنطقة الزمنية (باستخدام zoneinfo المدمجة)
+# 1. الإعدادات والمنطقة الزمنية
 # ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# استخدام المكتبة القياسية للغة بايثون بدون الحاجة لتثبيت pytz
 CAIRO_TZ = ZoneInfo("Africa/Cairo")
 
-TELEGRAM_BOT_TOKEN = os.getenv("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
-TELEGRAM_CHAT_ID = os.getenv("5418506244")
+# جلب البيانات بشكل صحيح مع توفير القيم الافتراضية
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5418506244")
 DATA_FILE = "daily_history.json"
 
-# قائمة أسهم EGX33 المعتمدة والمصححة
 EGX33_SYMBOLS = [
     "ABUK", "MFPC", "SKPC", "AMOC", "MBSC", "SCEM", 
     "TMGH", "OCDI", "MASR", "EMFD", "ORAS", "ORHD", "HELI", 
@@ -32,10 +31,9 @@ EGX33_SYMBOLS = [
 ]
 
 # ---------------------------------------------------------
-# 2. إدارة البيانات التاريخية المجانية (JSON File Storage)
+# 2. إدارة البيانات التاريخية (JSON File Storage)
 # ---------------------------------------------------------
 def load_history():
-    """تحميل سجلات الأيام السابقة"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -45,7 +43,6 @@ def load_history():
     return {}
 
 def save_history(history_data):
-    """حفظ سجلات التقييم يومياً"""
     try:
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(history_data, f, ensure_ascii=False, indent=2)
@@ -67,7 +64,9 @@ def send_telegram_message(message: str):
         "parse_mode": "Markdown"
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code != 200:
+            logging.error(f"خطأ تليجرام: {res.text}")
     except Exception as e:
         logging.error(f"خطأ أثناء الاتصال بتليجرام: {e}")
 
@@ -121,7 +120,6 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     symbol = data["symbol"]
     hour_min = current_time.hour + current_time.minute / 60.0
     
-    # RVOL ديناميكي حسب وقت الجلسة
     if hour_min < 11.5:
         min_rvol_trend = 1.3
     elif hour_min < 13.5:
@@ -134,7 +132,7 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     change_pct = data["change_pct"]
     close = data["close"]
     
-    # 1. مسار صائد القفزات الانفجارية (Breakout Hunter)
+    # 1. مسار القفزات الانفجارية (Breakout Hunter)
     if rvol >= 2.0 and change_pct >= 2.0 and (50.0 <= rsi <= 72.0):
         return {
             "type": "Breakout Hunter 🚀",
@@ -158,7 +156,7 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     if data["is_green"]:
         score += 15
 
-    # 🌟 بونص التجميع التراكمي (مقارنة بأداء الأيام السابقة)
+    # 🌟 بونص التجميع التراكمي (مقارنة بالسجلات)
     prev_symbol_data = history.get(symbol, {})
     if prev_symbol_data.get("score", 0) >= 55 and rvol >= 1.0:
         score += 15
@@ -174,29 +172,28 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     return {"type": "None", "score": score, "details": "لم يتجاوز الفلتر"}
 
 # ---------------------------------------------------------
-# 6. دالة الفحص الرئيسية والتحكم الزمني الذكي (Smart Throttling)
+# 6. دالة الفحص الرئيسية والتحكم الزمني الذكي
 # ---------------------------------------------------------
 def run_market_scan():
     now_cairo = datetime.now(CAIRO_TZ)
     current_time_str = now_cairo.strftime('%H:%M')
     
+    # تحديد نطاق ساعات التداول (من 10:00 إلى 14:15)
     start_market = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
     end_market = now_cairo.replace(hour=14, minute=15, second=0, microsecond=0)
 
-    # 1. الخروج الفوري خارج ساعات التداول أو في العطلات الرسمية
+    # 1. الخروج الفوري خارج الساعات لتوفير الموارد
     if not (start_market <= now_cairo <= end_market):
         logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات تداول البورصة. خروج فوري لتوفير الموارد.")
         sys.exit(0)
 
-    # 2. التحكم الزمني الذكي (Smart Throttling Engine)
+    # 2. التحكم الزمني الذكي (Smart Throttling)
     hour = now_cairo.hour
     minute = now_cairo.minute
     
-    # في أول 45 دقيقة (10:00 إلى 10:45): فحص كل 5 دقائق
     if hour == 10 and minute < 45:
         is_scan_time = True
     else:
-        # باقي الجلسة (11:00 - 14:15): فحص كل 15 دقيقة فقط (عند الدقائق 00, 15, 30, 45)
         is_scan_time = (minute % 15 == 0)
 
     if not is_scan_time:
@@ -206,7 +203,7 @@ def run_market_scan():
     logging.info(f"🔍 بدء فحص أسهم EGX33 التفاعلي [{current_time_str} مصر]...")
     
     history = load_history()
-    today_results = {}
+    today_results = history.copy()  # نحتفظ بالبيانات المسجلة مسبقاً خلال اليوم
     detected_opportunities = []
 
     for symbol in EGX33_SYMBOLS:
@@ -215,14 +212,18 @@ def run_market_scan():
             continue
         
         eval_res = evaluate_stock_opportunity(data, now_cairo, history)
+        
+        # تتبع أقصى RVOL وأعلى نقاط وصل لها السهم على مدار اليوم
+        prev_max_rvol = today_results.get(symbol, {}).get("max_rvol", 0.0)
         today_results[symbol] = {
             "score": eval_res["score"],
             "price": data["close"],
             "rvol": data["rvol"],
-            "rsi": data["rsi"]
+            "max_rvol": max(prev_max_rvol, data["rvol"]),
+            "rsi": data["rsi"],
+            "type": eval_res["type"]
         }
 
-        # تسجيل البيانات في السجلات
         logging.info(
             f"📊 [{symbol}] السعر: {data['close']} | "
             f"RVOL: {round(data['rvol'], 2)}x | "
@@ -242,22 +243,34 @@ def run_market_scan():
             send_telegram_message(msg)
             detected_opportunities.append(symbol)
 
-    # حفظ بيانات اليوم للاستفادة منها في الجلسة القادمة
+    # حفظ التاريخ اليومي
     save_history(today_results)
 
-    # 📊 إرسال تقرير الإغلاق الختامي عند الفحص الأخير (14:15)
+    # 📊 تقرير الإغلاق الختامي والتجميع اليومي (عند الفحص الأخير بين 14:00 و 14:15)
     if hour == 14 and minute >= 10:
-        top_3 = sorted(today_results.items(), key=lambda x: x[1]['score'], reverse=True)[:3]
-        digest_msg = "🏁 **تقرير إغلاق الجلسة واقتراحات الغد (Post-Market Digest)**\n\n"
-        digest_msg += "🔝 **أفضل 3 أسهم تجميعية للجلسة القادمة:**\n"
-        for idx, (sym, metrics) in enumerate(top_3, 1):
-            digest_msg += f"{idx}. `{sym}` - تقييم: {metrics['score']}/100 | RVOL: {round(metrics['rvol'],2)}x\n"
+        top_stocks = sorted(
+            [item for item in today_results.items() if item[1].get('score', 0) >= 50],
+            key=lambda x: x[1]['score'],
+            reverse=True
+        )[:5]
         
-        digest_msg += f"\n✅ إجمالي التنبيهات اليوم: {len(detected_opportunities)}"
+        digest_msg = "🏁 **تقرير إغلاق الجلسة واقتراحات التجميع للغد**\n\n"
+        digest_msg += "🔝 **أعلى الأسهم تجميعاً وسيولة لهذا اليوم:**\n"
+        
+        if top_stocks:
+            for idx, (sym, metrics) in enumerate(top_stocks, 1):
+                digest_msg += (
+                    f"{idx}. `{sym}` - التقييم: *{metrics['score']}/100*\n"
+                    f"   └ السعر: {metrics['price']} | RVOL الأقصى: {round(metrics['max_rvol'],2)}x | RSI: {round(metrics['rsi'],1)}\n"
+                )
+        else:
+            digest_msg += "لا توجد أسهم تخطت حاجز التقييم 50 اليوم.\n"
+            
+        digest_msg += f"\n✅ إجمالي الفرص المكتشفة أثناء الجلسة: {len(detected_opportunities)}"
         send_telegram_message(digest_msg)
         logging.info("📜 تم إرسال تقرير الإغلاق الختامي بنجاح.")
 
-    logging.info(f"✅ اكتمل الفحص. الخروج الفوري لتوفير الموارد.")
+    logging.info("✅ اكتمل الفحص. الخروج الفوري لتوفير الموارد.")
     sys.exit(0)
 
 if __name__ == "__main__":
