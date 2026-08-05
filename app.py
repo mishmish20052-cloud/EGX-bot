@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 import pytz
 import requests
-from tradingview_ta import TA_Handler, Interval, Exchange
+from tradingview_ta import TA_Handler, Interval
 
 # ---------------------------------------------------------
 # 1. الإعدادات والمنطقة الزمنية
@@ -133,7 +133,7 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     change_pct = data["change_pct"]
     close = data["close"]
     
-    # 1. مسار صائد القفزات الانفجارية
+    # 1. مسار صائد القفزات الانفجارية (Breakout Hunter)
     if rvol >= 2.0 and change_pct >= 2.0 and (50.0 <= rsi <= 72.0):
         return {
             "type": "Breakout Hunter 🚀",
@@ -141,7 +141,7 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
             "details": f"سيولة انفجارية {round(rvol,2)}x وتغير +{round(change_pct,2)}%"
         }
 
-    # 2. مسار الاتجاه المنتظم التراكمي
+    # 2. مسار الاتجاه المنتظم التراكمي (Regular Trend)
     score = 0
     if 45.0 <= rsi <= 63.0:
         score += 30
@@ -157,10 +157,10 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     if data["is_green"]:
         score += 15
 
-    # 🌟 بونص التجميع التراكمي (معرفة أداء اليوم السابق)
+    # 🌟 بونص التجميع التراكمي (مقارنة باليوم السابق)
     prev_symbol_data = history.get(symbol, {})
     if prev_symbol_data.get("score", 0) >= 55 and rvol >= 1.0:
-        score += 15  # إعطاء بونص للأسهم التي تجمع سيولة ليومين متتاليين
+        score += 15
         logging.info(f"🔥 [{symbol}] حصل على بونص تجميع تراكمي +15 نقطة!")
 
     if score >= 65 and rvol >= min_rvol_trend:
@@ -173,7 +173,7 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     return {"type": "None", "score": score, "details": "لم يتجاوز الفلتر"}
 
 # ---------------------------------------------------------
-# 6. دالة الفحص الرئيسية ورسالة ملخص اليوم
+# 6. دالة الفحص الرئيسية والتحكم الزمني الذكي (Smart Throttling)
 # ---------------------------------------------------------
 def run_market_scan():
     now_cairo = datetime.now(CAIRO_TZ)
@@ -182,9 +182,24 @@ def run_market_scan():
     start_market = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
     end_market = now_cairo.replace(hour=14, minute=15, second=0, microsecond=0)
 
-    # الخروج الفوري خارج وقت التداول
+    # 1. الخروج الفوري خارج ساعات التداول أو في العطلات الرسمية
     if not (start_market <= now_cairo <= end_market):
         logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات تداول البورصة. خروج فوري لتوفير الموارد.")
+        sys.exit(0)
+
+    # 2. التحكم الزمني الذكي (Smart Throttling Engine)
+    hour = now_cairo.hour
+    minute = now_cairo.minute
+    
+    # في أول 45 دقيقة (10:00 إلى 10:45): فحص كل 5 دقائق
+    if hour == 10 and minute < 45:
+        is_scan_time = True
+    else:
+        # باقي الجلسة (11:00 - 14:15): فحص كل 15 دقيقة فقط (عند الدقائق 00, 15, 30, 45)
+        is_scan_time = (minute % 15 == 0)
+
+    if not is_scan_time:
+        logging.info(f"💤 [{current_time_str} مصر] فترة الهدوء (تخطي الفحص لتوفير الموارد).")
         sys.exit(0)
 
     logging.info(f"🔍 بدء فحص أسهم EGX33 التفاعلي [{current_time_str} مصر]...")
@@ -206,7 +221,7 @@ def run_market_scan():
             "rsi": data["rsi"]
         }
 
-        # طباعة التقرير الشامل في سجلات Render
+        # تسجيل البيانات في السجلات الخاصة بـ Render
         logging.info(
             f"📊 [{symbol}] السعر: {data['close']} | "
             f"RVOL: {round(data['rvol'], 2)}x | "
@@ -226,11 +241,11 @@ def run_market_scan():
             send_telegram_message(msg)
             detected_opportunities.append(symbol)
 
-    # حفظ بيانات اليوم للغد
+    # حفظ بيانات اليوم للاستفادة منها في الجلسة القادمة
     save_history(today_results)
 
     # 📊 إرسال تقرير الإغلاق الختامي عند الفحص الأخير (14:15)
-    if now_cairo.hour == 14 and now_cairo.minute >= 10:
+    if hour == 14 and minute >= 10:
         top_3 = sorted(today_results.items(), key=lambda x: x[1]['score'], reverse=True)[:3]
         digest_msg = "🏁 **تقرير إغلاق الجلسة واقتراحات الغد (Post-Market Digest)**\n\n"
         digest_msg += "🔝 **أفضل 3 أسهم تجميعية للجلسة القادمة:**\n"
