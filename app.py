@@ -3,6 +3,7 @@ import time
 import math
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import requests
 from tradingview_ta import TA_Handler, Interval, Exchange
 
@@ -15,8 +16,11 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-TELEGRAM_BOT_TOKEN = os.getenv("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
-TELEGRAM_CHAT_ID = os.getenv("5418506244", "5418506244")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
+
+# المنطقة الزمنية لمصر (تضمن محاذاة الوقت على سيرفرات Render)
+EGYPT_TZ = ZoneInfo("Africa/Cairo")
 
 # قائمة أسهم مؤشر EGX33 الشرعي
 EGX33_SYMBOLS = [
@@ -28,7 +32,6 @@ EGX33_SYMBOLS = [
 ]
 
 # ذاكرة تتبع الصفقات الحية (Live Position Tracker)
-# الهيكل: {symbol: {'entry_price': float, 'pilot_only': bool, 'stop_loss': float, 'target_1': float}}
 active_positions = {}
 
 # ==========================================
@@ -63,7 +66,7 @@ def fetch_stock_data(symbol: str):
             symbol=symbol,
             screener="egypt",
             exchange="EGX",
-            interval=Interval.INTERVAL_15_MINUTE # إطار 15 دقيقة لربط زخم الشمعة
+            interval=Interval.INTERVAL_15_MINUTE
         )
         analysis = handler.get_analysis()
         indicators = analysis.indicators
@@ -83,7 +86,6 @@ def fetch_stock_data(symbol: str):
         if not close or not open_p or not rsi:
             return None
 
-        # حساب معدل حجم التداول النسبي (RVOL) نسبة للتغير السعري
         rvol = round(volume / vol_sma, 2) if vol_sma and vol_sma > 0 else 1.0
         price_change_pct = round(((close - open_p) / open_p) * 100, 2)
 
@@ -110,11 +112,7 @@ def fetch_stock_data(symbol: str):
 # 4. محرك المسار المزدوج والتقييم (Quant Rules)
 # ==========================================
 def evaluate_stock_opportunity(data: dict):
-    """
-    تطبيق منطق المسار المزدوج (Dual-Track Architecture):
-    - المسار الأول: اتجاه منتظم آمن (Regular Trend Track)
-    - المسار الثاني: صائد القفزات الانفجارية (Breakout Hunter Track)
-    """
+    """تطبيق منطق المسار المزدوج (Regular vs Breakout)"""
     symbol = data["symbol"]
     close = data["close"]
     open_p = data["open"]
@@ -142,28 +140,22 @@ def evaluate_stock_opportunity(data: dict):
     # ----------------------------------------------------
     # تحديد شروط المسار المزدوج للدخول (Dual-Track Logic)
     # ----------------------------------------------------
-    
-    # مسار (A): اتجاه آمن منتظم
     is_regular_setup = (score >= 70 and rvol >= 1.2 and rsi <= 63.0)
-    
-    # مسار (B): اختراق سيولة انفجاري (يلتقط قفزات الـ +4% إلى +15%)
     is_breakout_setup = (rvol >= 2.0 and change_pct >= 2.0 and rsi >= 52.0 and rsi <= 72.0)
 
     if is_regular_setup or is_breakout_setup:
-        # تحديد طريقة وتوزيع سيولة الدخول (Pilot Order 30% vs Regular 40%)
         if is_breakout_setup:
             strategy_name = "صائد قفزات انفجاري 🚀"
             allocation_pct = "30% (دفعة استكشافية اختبارية)"
             is_pilot = True
-            # وقف خسارة مشروط بقاع شمعة السيولة المرجعية - 0.5%
             stop_loss = round(low_price * 0.995, 2)
         else:
             strategy_name = "اتجاه آمن منتظم 📈"
             allocation_pct = "40% (دخول هرمي أساسي)"
             is_pilot = False
-            stop_loss = round(close * 0.975, 2) # وقف خسارة 2.5%
+            stop_loss = round(close * 0.975, 2)
 
-        target_1 = round(close * 1.04, 2) # هدف أول مبدئي +4%
+        target_1 = round(close * 1.04, 2)
 
         return {
             "symbol": symbol,
@@ -185,7 +177,7 @@ def evaluate_stock_opportunity(data: dict):
 # 5. إدارة الصفقات الحية (Live Position Monitor)
 # ==========================================
 def monitor_active_positions():
-    """متابعة الصفقات المفتوحة، وتفعيل Zero-Risk والتعزيز التلقائي"""
+    """متابعة الصفقات المفتوحة وتفعيل Zero-Risk والتعزيز التلقائي"""
     global active_positions
     
     for symbol, pos in list(active_positions.items()):
@@ -197,12 +189,11 @@ def monitor_active_positions():
         entry_price = pos["entry_price"]
         gain_pct = ((current_price - entry_price) / entry_price) * 100
 
-        # 1. تفعيل حماية أمان Zero-Risk عند تحقيق +2% صعود
+        # تفعيل حماية أمان Zero-Risk عند تحقيق +2% صعود
         if gain_pct >= 2.0 and not pos.get("zero_risk_active", False):
-            pos["stop_loss"] = entry_price # رفع الستوب لوس لسعر الدخول
+            pos["stop_loss"] = entry_price
             pos["zero_risk_active"] = True
             
-            # إذا كان الدخول استكشافياً (30%)، يتم تعزيز الصفقة بضخ الـ 70% المتبقية
             if pos.get("pilot_only", False):
                 pos["pilot_only"] = False
                 msg = (
@@ -222,7 +213,7 @@ def monitor_active_positions():
                 )
                 send_telegram_alert(msg)
 
-        # 2. خروج حتمي عند كسر وقف الخسارة
+        # خروج حتمي عند كسر وقف الخسارة
         elif current_price <= pos["stop_loss"]:
             msg = (
                 f"🚨 **تنبيه خروج من الصفقة (Stop-Loss Triggered)**\n"
@@ -241,13 +232,10 @@ def run_market_scan():
     """تشغيل دورة الفحص الكاملة لأسهم EGX33"""
     logging.info("🔍 بدء فحص أسهم EGX33 عبر المحرك المطور...")
     
-    # أولاً: متابعة الصفقات الحية المفتوحة
     if active_positions:
         monitor_active_positions()
 
-    # ثانياً: البحث عن فرص دخول جديدة
     for symbol in EGX33_SYMBOLS:
-        # تجنب التكرار إذا كان السهم مفتوحاً بالفعل في الصفقات الحية
         if symbol in active_positions:
             continue
 
@@ -257,7 +245,6 @@ def run_market_scan():
 
         opportunity = evaluate_stock_opportunity(data)
         if opportunity:
-            # تسجيل الصفقة في الذاكرة الحية
             active_positions[symbol] = {
                 "entry_price": opportunity["price"],
                 "pilot_only": opportunity["is_pilot"],
@@ -266,7 +253,6 @@ def run_market_scan():
                 "zero_risk_active": False
             }
 
-            # صياغة التنبيه التكتيكي وتوجيهه لتلجرام
             alert_msg = (
                 f"🎯 **تنبيه فرصة دخول جديدة ({opportunity['strategy']})**\n\n"
                 f"📌 **السهم:** `{opportunity['symbol']}`\n"
@@ -285,35 +271,34 @@ def run_market_scan():
 # ==========================================
 def main():
     """
-    التحكم في زمن الفحص التلقائي:
-    - فحص كل 5 دقائق في ساعات الذروة (10:00 إلى 11:30 صباحاً)
-    - فحص كل 15 دقيقة في باقي الجلسة (11:30 صباحاً إلى 02:15 ظهراً)
+    التحكم في زمن الفحص التلقائي بالاعتماد المباشر على توقيت مصر (Africa/Cairo)
     """
     send_telegram_alert("🚀 **تم تشغيل بوت اقتناص فرص EGX33 المطور بنجاح!**")
     
     while True:
-        now = datetime.now()
-        current_time_str = now.strftime("%H:%M")
-        weekday = now.weekday()
+        # قراءة الوقت الحالي محلياً بتوقيت القاهرة
+        now_cairo = datetime.now(EGYPT_TZ)
+        current_time_str = now_cairo.strftime("%H:%M")
+        weekday = now_cairo.weekday()
 
-        # العمل أثناء جلسة البورصة المصرية فقط (من الأحد إلى الخميس)
-        # ملاحظة: في Python، الأحد = 6، الإثنين = 0 ... الخميس = 3
+        # أيام التداول بالبورصة المصرية: الأحد (6)، الإثنين (0)، الثلاثاء (1)، الأربعاء (2)، الخميس (3)
         is_trading_day = (weekday in [6, 0, 1, 2, 3])
         
+        # التأكد من مطابقة الوقت لجلسة التداول (10:00 صباحاً إلى 02:15 ظهراً بتوقيت مصر)
         if is_trading_day and "10:00" <= current_time_str <= "14:15":
             run_market_scan()
             
-            # تحديد فترة الانتظار بناءً على ساعات الذروة
+            # فترة الذروة بتوقيت مصر (10:00 إلى 11:30 صباحاً)
             if "10:00" <= current_time_str <= "11:30":
-                logging.info("⏱️ ساعات الذروة الحالية: الفحص التالي خلال 5 دقائق...")
-                time.sleep(300) # 5 دقائق
+                logging.info(f"⏱️ [{current_time_str} مصر] ساعات الذروة: الفحص التالي خلال 5 دقائق...")
+                time.sleep(300)
             else:
-                logging.info("⏱️ ساعات التداول العادية: الفحص التالي خلال 15 دقيقة...")
-                time.sleep(900) # 15 دقيقة
+                logging.info(f"⏱️ [{current_time_str} مصر] ساعات التداول العادية: الفحص التالي خلال 15 دقيقة...")
+                time.sleep(900)
         else:
-            logging.info("⏸️ خارج ساعات تداول البورصة المصرية. انتظار 5 دقائق...")
+            logging.info(f"⏸️ [{current_time_str} مصر] خارج ساعات تداول البورصة المصرية. انتظار 5 دقائق...")
             time.sleep(300)
 
 if __name__ == "__main__":
     main()
-    
+        
