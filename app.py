@@ -205,4 +205,9 @@ def run_market_scan():
 
 if __name__ == "__main__":
     run_market_scan()
+
+if __name__ == "__main__":
+    run_market_scan()
+    # الخروج الفوري بعد انتهاء الفحص الفردي لتحرير الموارد فوراً
+    sys.exit(0)
     
