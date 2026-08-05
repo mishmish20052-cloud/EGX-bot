@@ -3,25 +3,26 @@ import sys
 import json
 import logging
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 import requests
 from tradingview_ta import TA_Handler, Interval
 
 # ---------------------------------------------------------
-# 1. الإعدادات والمنطقة الزمنية
+# 1. الإعدادات والمنطقة الزمنية (باستخدام zoneinfo المدمجة)
 # ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-CAIRO_TZ = pytz.timezone('Africa/Cairo')
+# استخدام المكتبة القياسية للغة بايثون بدون الحاجة لتثبيت pytz
+CAIRO_TZ = ZoneInfo("Africa/Cairo")
 
 TELEGRAM_BOT_TOKEN = os.getenv("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
 TELEGRAM_CHAT_ID = os.getenv("5418506244")
 DATA_FILE = "daily_history.json"
 
-# قائمة أسهم EGX33 المعتمدة
+# قائمة أسهم EGX33 المعتمدة والمصححة
 EGX33_SYMBOLS = [
     "ABUK", "MFPC", "SKPC", "AMOC", "MBSC", "SCEM", 
     "TMGH", "OCDI", "MASR", "EMFD", "ORAS", "ORHD", "HELI", 
@@ -157,7 +158,7 @@ def evaluate_stock_opportunity(data: dict, current_time, history: dict):
     if data["is_green"]:
         score += 15
 
-    # 🌟 بونص التجميع التراكمي (مقارنة باليوم السابق)
+    # 🌟 بونص التجميع التراكمي (مقارنة بأداء الأيام السابقة)
     prev_symbol_data = history.get(symbol, {})
     if prev_symbol_data.get("score", 0) >= 55 and rvol >= 1.0:
         score += 15
@@ -221,7 +222,7 @@ def run_market_scan():
             "rsi": data["rsi"]
         }
 
-        # تسجيل البيانات في السجلات الخاصة بـ Render
+        # تسجيل البيانات في السجلات
         logging.info(
             f"📊 [{symbol}] السعر: {data['close']} | "
             f"RVOL: {round(data['rvol'], 2)}x | "
@@ -256,7 +257,7 @@ def run_market_scan():
         send_telegram_message(digest_msg)
         logging.info("📜 تم إرسال تقرير الإغلاق الختامي بنجاح.")
 
-    logging.info(f"✅ اكتمل الفحص. الخروج الفوري لتوفير السيرفر.")
+    logging.info(f"✅ اكتمل الفحص. الخروج الفوري لتوفير الموارد.")
     sys.exit(0)
 
 if __name__ == "__main__":
