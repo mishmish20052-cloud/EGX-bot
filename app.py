@@ -1,5 +1,4 @@
 import os
-import time
 import math
 import logging
 from datetime import datetime
@@ -226,7 +225,7 @@ def monitor_active_positions():
             del active_positions[symbol]
 
 # ==========================================
-# 6. دورة الفحص الرئيسية (Main Dynamic Scanner Loop)
+# 6. دورة الفحص الرئيسية (Main Market Scanner)
 # ==========================================
 def run_market_scan():
     """تشغيل دورة الفحص الكاملة لأسهم EGX33"""
@@ -267,38 +266,26 @@ def run_market_scan():
             send_telegram_alert(alert_msg)
 
 # ==========================================
-# 7. جدولة التوقيت اللحظي الذكي (Dynamic Scheduler)
+# 7. نقطة الإدخال المخصصة لـ Cron Job
 # ==========================================
 def main():
     """
-    التحكم في زمن الفحص التلقائي بالاعتماد المباشر على توقيت مصر (Africa/Cairo)
+    نقطة التشغيل المخصصة لجدولة Cron Job:
+    تقوم بقراءة وقت القاهرة، التنفيذ مرة واحدة، ثم الإغلاق الفوري للمحافظة على الموارد.
     """
-    send_telegram_alert("🚀 **تم تشغيل بوت اقتناص فرص EGX33 المطور بنجاح!**")
-    
-    while True:
-        # قراءة الوقت الحالي محلياً بتوقيت القاهرة
-        now_cairo = datetime.now(EGYPT_TZ)
-        current_time_str = now_cairo.strftime("%H:%M")
-        weekday = now_cairo.weekday()
+    now_cairo = datetime.now(EGYPT_TZ)
+    current_time_str = now_cairo.strftime("%H:%M")
+    weekday = now_cairo.weekday()
 
-        # أيام التداول بالبورصة المصرية: الأحد (6)، الإثنين (0)، الثلاثاء (1)، الأربعاء (2)، الخميس (3)
-        is_trading_day = (weekday in [6, 0, 1, 2, 3])
-        
-        # التأكد من مطابقة الوقت لجلسة التداول (10:00 صباحاً إلى 02:15 ظهراً بتوقيت مصر)
-        if is_trading_day and "10:00" <= current_time_str <= "14:15":
-            run_market_scan()
-            
-            # فترة الذروة بتوقيت مصر (10:00 إلى 11:30 صباحاً)
-            if "10:00" <= current_time_str <= "11:30":
-                logging.info(f"⏱️ [{current_time_str} مصر] ساعات الذروة: الفحص التالي خلال 5 دقائق...")
-                time.sleep(300)
-            else:
-                logging.info(f"⏱️ [{current_time_str} مصر] ساعات التداول العادية: الفحص التالي خلال 15 دقيقة...")
-                time.sleep(900)
-        else:
-            logging.info(f"⏸️ [{current_time_str} مصر] خارج ساعات تداول البورصة المصرية. انتظار 5 دقائق...")
-            time.sleep(300)
+    # أيام التداول بالبورصة المصرية: الأحد (6)، الإثنين (0)، الثلاثاء (1)، الأربعاء (2)، الخميس (3)
+    is_trading_day = (weekday in [6, 0, 1, 2, 3])
+
+    if is_trading_day and "10:00" <= current_time_str <= "14:15":
+        run_market_scan()
+        logging.info(f"✅ [{current_time_str} مصر] اكتمل فحص الجلسة بنجاح. إنهاء المهمة حتى الفحص التالي.")
+    else:
+        logging.info(f"⏸️ [{current_time_str} مصر] خارج ساعات تداول البورصة المصرية. إنهاء المهمة.")
 
 if __name__ == "__main__":
     main()
-    
+        
