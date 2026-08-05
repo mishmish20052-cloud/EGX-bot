@@ -1,4 +1,6 @@
 import os
+import sys
+import json
 import logging
 from datetime import datetime
 import pytz
@@ -6,7 +8,7 @@ import requests
 from tradingview_ta import TA_Handler, Interval, Exchange
 
 # ---------------------------------------------------------
-# 1. إعدادات التسجيل والمنطقة الزمنية
+# 1. الإعدادات والمنطقة الزمنية
 # ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -15,13 +17,11 @@ logging.basicConfig(
 
 CAIRO_TZ = pytz.timezone('Africa/Cairo')
 
-# بيانات التليجرام من متغيّرات البيئة
 TELEGRAM_BOT_TOKEN = os.getenv("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
 TELEGRAM_CHAT_ID = os.getenv("5418506244")
+DATA_FILE = "daily_history.json"
 
-# ---------------------------------------------------------
-# 2. قائمة أسهم EGX33 المعتمدة والمنظفة
-# ---------------------------------------------------------
+# قائمة أسهم EGX33 المعتمدة
 EGX33_SYMBOLS = [
     "ABUK", "MFPC", "SKPC", "AMOC", "MBSC", "SCEM", 
     "TMGH", "OCDI", "MASR", "EMFD", "ORAS", "ORHD", "HELI", 
@@ -31,11 +31,32 @@ EGX33_SYMBOLS = [
 ]
 
 # ---------------------------------------------------------
+# 2. إدارة البيانات التاريخية المجانية (JSON File Storage)
+# ---------------------------------------------------------
+def load_history():
+    """تحميل سجلات الأيام السابقة"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.warning(f"تعذر قراءة ملف التاريخ: {e}")
+    return {}
+
+def save_history(history_data):
+    """حفظ سجلات التقييم يومياً"""
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.error(f"فشل حفظ ملف التاريخ: {e}")
+
+# ---------------------------------------------------------
 # 3. إرسال تنبيهات تليجرام
 # ---------------------------------------------------------
 def send_telegram_message(message: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.warning("⚠️ لم يتم ضبط متغيّرات بيئة تليجرام (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID).")
+        logging.warning("⚠️ لم يتم ضبط متغيّرات بيئة تليجرام.")
         return
     
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -45,14 +66,12 @@ def send_telegram_message(message: str):
         "parse_mode": "Markdown"
     }
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code != 200:
-            logging.error(f"فشل إرسال رسالة تليجرام: {res.text}")
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
         logging.error(f"خطأ أثناء الاتصال بتليجرام: {e}")
 
 # ---------------------------------------------------------
-# 4. جلب البيانات الفنية للسهم
+# 4. جلب البيانات الفنية
 # ---------------------------------------------------------
 def fetch_stock_data(symbol: str):
     try:
@@ -74,10 +93,7 @@ def fetch_stock_data(symbol: str):
         macd = indicators.get("MACD.macd", 0)
         macd_signal = indicators.get("MACD.signal", 0)
         
-        # التغير السعري اللحظي
         change_pct = ((close - open_p) / open_p * 100) if open_p > 0 else 0
-        
-        # حساب السيولة النسبية التقريبية (RVOL)
         volume_sma20 = indicators.get("volume.SMA20", volume)
         rvol = (volume / volume_sma20) if (volume_sma20 and volume_sma20 > 0) else 1.0
         
@@ -98,17 +114,18 @@ def fetch_stock_data(symbol: str):
         return None
 
 # ---------------------------------------------------------
-# 5. محرك التقييم الديناميكي (Dynamic RVOL + Sensitivity Tuning)
+# 5. محرك التقييم الذكي التراكمي (Quant Accumulation Engine)
 # ---------------------------------------------------------
-def evaluate_stock_opportunity(data: dict, current_time):
-    # أ) تحديد شرط RVOL الديناميكي بناءً على وقت الجلسة
+def evaluate_stock_opportunity(data: dict, current_time, history: dict):
+    symbol = data["symbol"]
     hour_min = current_time.hour + current_time.minute / 60.0
     
-    if hour_min < 11.5:        # من 10:00 حتى 11:30 (افتتاح نَشِط)
+    # RVOL ديناميكي حسب وقت الجلسة
+    if hour_min < 11.5:
         min_rvol_trend = 1.3
-    elif hour_min < 13.5:      # من 11:30 حتى 13:30 (منتصف الجلسة الهادئ)
+    elif hour_min < 13.5:
         min_rvol_trend = 0.9
-    else:                      # من 13:30 حتى 14:15 (نهاية الجلسة)
+    else:
         min_rvol_trend = 1.1
 
     rsi = data["rsi"]
@@ -116,7 +133,7 @@ def evaluate_stock_opportunity(data: dict, current_time):
     change_pct = data["change_pct"]
     close = data["close"]
     
-    # 1. مسار صائد القفزات (Breakout Hunter)
+    # 1. مسار صائد القفزات الانفجارية
     if rvol >= 2.0 and change_pct >= 2.0 and (50.0 <= rsi <= 72.0):
         return {
             "type": "Breakout Hunter 🚀",
@@ -124,10 +141,8 @@ def evaluate_stock_opportunity(data: dict, current_time):
             "details": f"سيولة انفجارية {round(rvol,2)}x وتغير +{round(change_pct,2)}%"
         }
 
-    # 2. مسار الاتجاه المنتظم (Regular Trend) - تخفيف الحساسية
+    # 2. مسار الاتجاه المنتظم التراكمي
     score = 0
-    
-    # شرط الزخم المعدل (من 45 إلى 63)
     if 45.0 <= rsi <= 63.0:
         score += 30
     elif 63.0 < rsi <= 68.0:
@@ -142,33 +157,40 @@ def evaluate_stock_opportunity(data: dict, current_time):
     if data["is_green"]:
         score += 15
 
-    # قبول الفرصة عند تقييم >= 65 وشعاع سيولة مناسب للوقت الحالي
+    # 🌟 بونص التجميع التراكمي (معرفة أداء اليوم السابق)
+    prev_symbol_data = history.get(symbol, {})
+    if prev_symbol_data.get("score", 0) >= 55 and rvol >= 1.0:
+        score += 15  # إعطاء بونص للأسهم التي تجمع سيولة ليومين متتاليين
+        logging.info(f"🔥 [{symbol}] حصل على بونص تجميع تراكمي +15 نقطة!")
+
     if score >= 65 and rvol >= min_rvol_trend:
         return {
             "type": "Regular Trend 📈",
             "score": score,
-            "details": f"تقييم ممتاز ({score}/100) وسيولة {round(rvol,2)}x (الحد المطلوب: {min_rvol_trend}x)"
+            "details": f"تقييم ممتاز ({score}/100) وسيولة {round(rvol,2)}x"
         }
 
     return {"type": "None", "score": score, "details": "لم يتجاوز الفلتر"}
 
 # ---------------------------------------------------------
-# 6. دالة الفحص الرئيسية (Single-Execution for Cron Job)
+# 6. دالة الفحص الرئيسية ورسالة ملخص اليوم
 # ---------------------------------------------------------
 def run_market_scan():
     now_cairo = datetime.now(CAIRO_TZ)
     current_time_str = now_cairo.strftime('%H:%M')
     
-    # التحقق من ساعات عمل السوق الرسمي (10:00 - 14:15)
     start_market = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
     end_market = now_cairo.replace(hour=14, minute=15, second=0, microsecond=0)
 
+    # الخروج الفوري خارج وقت التداول
     if not (start_market <= now_cairo <= end_market):
-        logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات تداول البورصة المصرية. تم إنهاء المهام.")
-        return
+        logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات تداول البورصة. خروج فوري لتوفير الموارد.")
+        sys.exit(0)
 
     logging.info(f"🔍 بدء فحص أسهم EGX33 التفاعلي [{current_time_str} مصر]...")
     
+    history = load_history()
+    today_results = {}
     detected_opportunities = []
 
     for symbol in EGX33_SYMBOLS:
@@ -176,38 +198,52 @@ def run_market_scan():
         if not data:
             continue
         
-        eval_res = evaluate_stock_opportunity(data, now_cairo)
-        
-        # --- وضع التتقرير الشامل (Audit Logging) ---
+        eval_res = evaluate_stock_opportunity(data, now_cairo, history)
+        today_results[symbol] = {
+            "score": eval_res["score"],
+            "price": data["close"],
+            "rvol": data["rvol"],
+            "rsi": data["rsi"]
+        }
+
+        # طباعة التقرير الشامل في سجلات Render
         logging.info(
             f"📊 [{symbol}] السعر: {data['close']} | "
             f"RVOL: {round(data['rvol'], 2)}x | "
             f"RSI: {round(data['rsi'], 1)} | "
-            f"التغير: {round(data['change_pct'], 2)}% | "
             f"النتيجة: {eval_res['score']}/100 ({eval_res['type']})"
         )
 
         if eval_res["type"] != "None":
             msg = (
-                f"🎯 **تنبيه فرصة تداول جديدة [{eval_res['type']}]**\n\n"
+                f"🎯 **تنبيه فرصة تداول [{eval_res['type']}]**\n\n"
                 f"🔹 **السهم:** `{symbol}`\n"
-                f"💵 **سعر الإغلاق:** {data['close']} ج.م\n"
-                f"📊 **مؤشر الزخم RSI:** {round(data['rsi'], 1)}\n"
-                f"💥 **حجم السيولة RVOL:** {round(data['rvol'], 2)}x\n"
-                f"📈 **التغير اللحظي:** {round(data['change_pct'], 2)}%\n"
-                f"🏆 **درجة التقييم:** {eval_res['score']}/100\n\n"
-                f"📝 **ملاحظة Engine:** {eval_res['details']}"
+                f"💵 **السعر:** {data['close']} ج.م\n"
+                f"📊 **RSI:** {round(data['rsi'], 1)} | **RVOL:** {round(data['rvol'], 2)}x\n"
+                f"🏆 **التقييم:** {eval_res['score']}/100\n"
+                f"📝 {eval_res['details']}"
             )
             send_telegram_message(msg)
             detected_opportunities.append(symbol)
 
-    logging.info(f"✅ اكتمل الفحص. عدد التنبيهات المرسلة: {len(detected_opportunities)}")
+    # حفظ بيانات اليوم للغد
+    save_history(today_results)
 
-if __name__ == "__main__":
-    run_market_scan()
+    # 📊 إرسال تقرير الإغلاق الختامي عند الفحص الأخير (14:15)
+    if now_cairo.hour == 14 and now_cairo.minute >= 10:
+        top_3 = sorted(today_results.items(), key=lambda x: x[1]['score'], reverse=True)[:3]
+        digest_msg = "🏁 **تقرير إغلاق الجلسة واقتراحات الغد (Post-Market Digest)**\n\n"
+        digest_msg += "🔝 **أفضل 3 أسهم تجميعية للجلسة القادمة:**\n"
+        for idx, (sym, metrics) in enumerate(top_3, 1):
+            digest_msg += f"{idx}. `{sym}` - تقييم: {metrics['score']}/100 | RVOL: {round(metrics['rvol'],2)}x\n"
+        
+        digest_msg += f"\n✅ إجمالي التنبيهات اليوم: {len(detected_opportunities)}"
+        send_telegram_message(digest_msg)
+        logging.info("📜 تم إرسال تقرير الإغلاق الختامي بنجاح.")
 
-if __name__ == "__main__":
-    run_market_scan()
-    # الخروج الفوري بعد انتهاء الفحص الفردي لتحرير الموارد فوراً
+    logging.info(f"✅ اكتمل الفحص. الخروج الفوري لتوفير السيرفر.")
     sys.exit(0)
+
+if __name__ == "__main__":
+    run_market_scan()
     
