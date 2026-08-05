@@ -16,8 +16,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
+TELEGRAM_BOT_TOKEN = os.getenv("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
+TELEGRAM_CHAT_ID = os.getenv("5418506244", "5418506244")
 
 # المنطقة الزمنية لمصر (تضمن محاذاة الوقت على سيرفرات Render)
 EGYPT_TZ = ZoneInfo("Africa/Cairo")
@@ -66,7 +66,7 @@ def fetch_stock_data(symbol: str):
             symbol=symbol,
             screener="egypt",
             exchange="EGX",
-            interval=Interval.INTERVAL_15_MINUTE
+            interval=Interval.INTERVAL_15_MINUTES # 👈 تم تصحيح المسمى هنا لتفادي الخطأ
         )
         analysis = handler.get_analysis()
         indicators = analysis.indicators
@@ -301,4 +301,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+            
