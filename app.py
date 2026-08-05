@@ -22,13 +22,13 @@ TELEGRAM_CHAT_ID = os.getenv("5418506244", "5418506244")
 # المنطقة الزمنية لمصر (تضمن محاذاة الوقت على سيرفرات Render)
 EGYPT_TZ = ZoneInfo("Africa/Cairo")
 
-# قائمة أسهم مؤشر EGX33 الشرعي
+# قائمة أسهم مؤشر EGX33 المعدلة والمطابقة لرموز TradingView
 EGX33_SYMBOLS = [
-    "ABUK", "MFPC", "SKPC", "AMOC", "KPRE", "MBSC", "SCEM", 
+    "ABUK", "MFPC", "SKPC", "AMOC", "KZPC", "MBSC", "SCEM", 
     "TMGH", "OCDI", "MASR", "EMFD", "ORAS", "ORHD", "HELI", 
     "CLHO", "ISPH", "RMDA", "PHAR", "JUFO", "OLFI", "SUGR", 
     "EFID", "EFIH", "FWRY", "ETEL", "ALCN", "CSAG", "ORWE", 
-    "ARAB", "CICH", "AUTO", "EALR", "ESRS"
+    "ARAB", "CICH", "GBCO", "EALR", "IRAX"
 ]
 
 # ذاكرة تتبع الصفقات الحية (Live Position Tracker)
@@ -66,7 +66,7 @@ def fetch_stock_data(symbol: str):
             symbol=symbol,
             screener="egypt",
             exchange="EGX",
-            interval=Interval.INTERVAL_15_MINUTES # 👈 تم تصحيح المسمى هنا لتفادي الخطأ
+            interval=Interval.INTERVAL_15_MINUTES
         )
         analysis = handler.get_analysis()
         indicators = analysis.indicators
@@ -301,4 +301,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-            
+    
