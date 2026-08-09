@@ -27,7 +27,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 DATA_FILE = "daily_history.json"
 PENDING_FILE = "pending_signals.json"
 TRADES_FILE = "today_trades.json"
-CONFIG_FILE = "strategy_config.json"  # ملف المعايير الذكية المتعلمة
+CONFIG_FILE = "strategy_config.json"
 
 audit_sent_today = False
 last_audit_date = None
@@ -53,7 +53,7 @@ EGX33_SYMBOLS_MAP = {
 STOCKS = list(EGX33_SYMBOLS_MAP.keys())
 
 # ===========================================================
-# 2. دوال التخزين وإدارة استراتيجية التعلم
+# 2. إدارة التخزين واستراتيجية التعلم
 # ===========================================================
 def load_json(file_path, default=None):
     if default is None: default = {}
@@ -73,18 +73,19 @@ def save_json(file_path, data):
         logging.error(f"فشل حفظ {file_path}: {e}")
 
 def get_learned_config():
-    """تحميل إعدادات الاستراتيجية المكيّفة تلقائياً"""
+    """تحميل القواعد والمقاييس الذكية الحالية"""
     default_config = {
         "min_rvol_trend": 1.1,
         "min_score": 65,
         "rsi_min": 45.0,
         "rsi_max": 68.0,
+        "use_macd_filter": True,
         "learned_days": 0
     }
     return load_json(CONFIG_FILE, default_config)
 
 # ===========================================================
-# 3. جلب بيانات الأسهم والتوقيت
+# 3. جلب البيانات والتوقيت
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
     for attempt in range(max_retries):
@@ -114,6 +115,7 @@ def fetch_stock_data_safe(symbol, max_retries=3):
             return {
                 "symbol": symbol,
                 "close": close,
+                "open": open_p,
                 "change_pct": change_pct,
                 "rsi": rsi,
                 "rvol": rvol,
@@ -133,39 +135,27 @@ def fetch_stock_data_safe(symbol, max_retries=3):
     return None
 
 def is_market_open():
-    """التحقق التام من توقيت البورصة المصرية (10:00 إلى 14:30) من الأحد للخميس"""
     now_cairo = datetime.now(CAIRO_TZ)
-    if now_cairo.weekday() in [4, 5]: # الجمعة والسبت عطلة
+    if now_cairo.weekday() in [4, 5]:
         return False
-    
     start_time = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
     end_time = now_cairo.replace(hour=14, minute=30, second=0, microsecond=0)
     return start_time <= now_cairo <= end_time
 
-# ===========================================================
-# 4. محرك التقييم الديناميكي ومحرك التعلم اليومي
-# ===========================================================
-def evaluate_stock(data, current_time, config):
-    rsi = data["rsi"]
-    rvol = data["rvol"]
-    change_pct = data["change_pct"]
-    close = data["close"]
+def evaluate_stock(data, config):
+    rsi, rvol, change_pct, close = data["rsi"], data["rvol"], data["change_pct"], data["close"]
     
     if change_pct >= 8.5:
         return {"type": "None", "score": 0}
 
-    # مسار الانفجار الفوري
     if rvol >= 2.5 and change_pct >= 1.5 and (50.0 <= rsi <= 72.0):
         return {"type": "Super Breakout 🚀", "score": 95, "instant": True}
 
-    # التقييم بناءً على المعايير الديناميكية المتعلمة
     score = 0
-    if config["rsi_min"] <= rsi <= config["rsi_max"]:
-        score += 30
-    
+    if config["rsi_min"] <= rsi <= config["rsi_max"]: score += 30
     if close > data["ema25"]: score += 20
     if close > data["ema50"]: score += 20
-    if data["macd"] > data["macd_signal"]: score += 15
+    if config.get("use_macd_filter", True) and data["macd"] > data["macd_signal"]: score += 15
     if data["is_green"]: score += 15
 
     if score >= config["min_score"] and rvol >= config["min_rvol_trend"]:
@@ -173,87 +163,105 @@ def evaluate_stock(data, current_time, config):
 
     return {"type": "None", "score": score, "instant": False}
 
-def update_learning_engine(all_data, history):
-    """خوارزمية التعلم الذاتي: تعديل المعايير بناءً على أداء أسهم اليوم"""
+# ===========================================================
+# 4. محرك التحليل والتشخيص والتكيف التلقائي (Post-Market AI Engine)
+# ===========================================================
+def run_post_market_analysis(all_data, history):
     config = get_learned_config()
+    trades = load_json(TRADES_FILE, {})
     
-    winning_rvols = []
-    winning_rsis = []
-    
-    for sym, metrics in history.items():
-        start_price = metrics.get("first_price", 0)
-        close_price = all_data.get(sym, {}).get("close", 0)
+    correct_signals = []
+    false_signals = []
+    missed_opportunities = []
+
+    # 1. تحليل كل سهم في السوق بنهاية الجلسة
+    for sym, data in all_data.items():
+        mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
+        hist_info = history.get(sym, {})
+        start_p = hist_info.get("first_price", data["open"])
+        curr_p = data["close"]
         
-        if start_price > 0 and close_price > 0:
-            change_pct = ((close_price - start_price) / start_price) * 100
-            
-            # السهم يعتبر ناجحاً إذا حقق أرباحاً أعلى من +1.5%
-            if change_pct >= 1.5:
-                winning_rvols.append(metrics.get("rvol", 1.0))
-                winning_rsis.append(metrics.get("rsi", 50.0))
+        actual_change = round(((curr_p - start_p) / start_p) * 100, 2) if start_p > 0 else 0.0
+        max_score = hist_info.get("max_score", 0)
 
-    changes_log = []
+        # أ) فحص الإشارات الصادرة (المنفذة)
+        if sym in trades:
+            entry_p = trades[sym]["entry"]
+            perf = round(((curr_p - entry_p) / entry_p) * 100, 2)
+            if perf >= 1.5:
+                correct_signals.append(f"• `{mb_name}`: دخول {entry_p} ➔ إغلاق {curr_p} (+{perf}%)")
+            else:
+                false_signals.append(
+                    f"• `{mb_name}`: دخول {entry_p} ➔ إغلاق {curr_p} ({perf}%)\n"
+                    f"  🔍 السبب الفني: سيولة كاذبة (RVOL: {round(data['rvol'],2)}x) وبدء جني أرباح."
+                )
+
+        # ب) فحص الفرص الضائعة (أسهم ارتفعت ولكن البوت لم يستخرجها)
+        elif actual_change >= 2.0 and max_score < config["min_score"]:
+            # تشخيص سبب الاستبعاد
+            reasons = []
+            if data["rvol"] < config["min_rvol_trend"]:
+                reasons.append(f"سيولة أقل من المطلوب ({round(data['rvol'],2)}x < {config['min_rvol_trend']}x)")
+            if not (config["rsi_min"] <= data["rsi"] <= config["rsi_max"]):
+                reasons.append(f"RSI خارج النطاق ({round(data['rsi'],1)})")
+            if data["close"] <= data["ema25"]:
+                reasons.append("السعر أسفل EMA25")
+
+            reason_str = " و ".join(reasons) if reasons else "تقييم عام أقل من الحد المطلوب"
+            missed_opportunities.append(
+                f"• `{mb_name}`: ارتفع (+{actual_change}%)\n"
+                f"  🔍 سبب التفويت: {reason_str}"
+            )
+
+    # 2. خوارزمية التعلم وتعديل المقاييس تلقائياً
+    adjustments_made = []
     
-    # تحسين السيولة المطلوبة إذا وُجد سلوك واضح
-    if winning_rvols:
-        avg_winner_rvol = sum(winning_rvols) / len(winning_rvols)
-        new_min_rvol = round(max(1.0, min(1.6, (config["min_rvol_trend"] + avg_winner_rvol) / 2)), 2)
-        if new_min_rvol != config["min_rvol_trend"]:
-            changes_log.append(f"• السيولة الأدنى (RVOL): تعدلت من `{config['min_rvol_trend']}x` إلى `{new_min_rvol}x`")
-            config["min_rvol_trend"] = new_min_rvol
+    # تعديل المعايير إذا كانت هناك فرص ضائعة كثيرة بسبب السيولة
+    if len(missed_opportunities) >= 2:
+        if config["min_rvol_trend"] > 0.9:
+            old_val = config["min_rvol_trend"]
+            config["min_rvol_trend"] = round(config["min_rvol_trend"] - 0.1, 2)
+            adjustments_made.append(f"• خفض شرط السيولة الأدنى (RVOL): من `{old_val}x` إلى `{config['min_rvol_trend']}x` لعدم تفويت الأسهم الصاعدة.")
 
-    # تحسين نطاق RSI
-    if winning_rsis:
-        avg_winner_rsi = sum(winning_rsis) / len(winning_rsis)
-        if avg_winner_rsi > 58:
-            config["rsi_min"] = round(min(52.0, config["rsi_min"] + 1.0), 1)
-            changes_log.append(f"• رفع حد RSI الأدنى إلى `{config['rsi_min']}` لتركيز الفرص القوية.")
+    # تعديل المعايير إذا وُجدت إشارات كاذبة
+    if len(false_signals) >= 1:
+        if config["min_score"] < 75:
+            old_score = config["min_score"]
+            config["min_score"] += 5
+            adjustments_made.append(f"• رفع حد التقييم الأدنى (Score): من `{old_score}` إلى `{config['min_score']}` لفلترة الإشارات الكاذبة.")
 
     config["learned_days"] += 1
     save_json(CONFIG_FILE, config)
-    
-    return changes_log, config
 
-# ===========================================================
-# 5. تدقيق نهاية اليوم والتقرير التعليمي
-# ===========================================================
-def run_post_market_audit(all_data, history):
-    trades = load_json(TRADES_FILE, {})
+    # 3. صياغة التقرير التفصيلي الشامل
+    report = "🏁 **تقرير تحليل الجلسة والتعلم الآلي (Post-Market AI Report)**\n\n"
     
-    # تشغيل خوارزمية التعلم الذاتي
-    learning_changes, new_config = update_learning_engine(all_data, history)
-    
-    green_count = sum(1 for d in all_data.values() if d["is_green"])
-    avg_rvol = sum(d["rvol"] for d in all_data.values()) / len(all_data) if all_data else 1.0
+    report += "✅ **1. الإشارات الصحيحة (الرابحة):**\n"
+    report += "\n".join(correct_signals) if correct_signals else "لا يوجد إشارات ناجحة اليوم.\n"
+    report += "\n\n"
 
-    report = "🏁 **تقرير تدقيق الجلسة وتحديث الذكاء الاصطناعي (AI Digest)**\n\n"
-    report += (
-        f"📊 **ملخص البورصة اليوم:**\n"
-        f"├ أسهم صاعدة: {green_count}/{len(all_data)}\n"
-        f"└ متوسط سيولة السوق: {round(avg_rvol, 2)}x\n\n"
-    )
+    report += "❌ **2. الإشارات الخاطئة وتجميع الأسباب:**\n"
+    report += "\n".join(false_signals) if false_signals else "لا توجد إشارات كاذبة اليوم (كفاءة ممتازة).\n"
+    report += "\n\n"
 
-    if trades:
-        report += f"📈 **عدد التوصيات المفعلة اليوم:** {len(trades)} صفقة.\n\n"
+    report += "🚀 **3. الفرص الضائعة وتشخيص أسباب عدم التقاطها:**\n"
+    report += "\n".join(missed_opportunities[:4]) if missed_opportunities else "لم تُفقد أي فرص صاعدة كبيرة اليوم.\n"
+    report += "\n\n"
+
+    report += f"🧠 **4. التعديلات التلقائية على المقاييس (أيام التعلم: {config['learned_days']}):**\n"
+    if adjustments_made:
+        report += "\n".join(adjustments_made)
     else:
-        report += "ℹ️ **التوصيات:** لم تُفعل أي صفقات جديدة اليوم لحمايتك من التذبذب.\n\n"
-
-    # عرض نتائج التعلم والتحديث الذاتي
-    report += f"🧠 **تحديث المعايير الذكية (أيام التعلم: {new_config['learned_days']}):**\n"
-    if learning_changes:
-        for change in learning_changes:
-            report += f"{change}\n"
-    else:
-        report += "• تم التأكد من كفاءة المعايير الحالية واستمرار العمل بها للغد.\n"
+        report += "• المقاييس الحالية أثبتت كفاءتها ولم تتطلب أي تعديل للجلسة القادمة."
 
     try:
         bot.send_message(CHAT_ID, report, parse_mode="Markdown")
-        logging.info("📜 تم إرسال تقرير التدقيق والتعلم بنجاح.")
+        logging.info("📜 تم إرسال تقرير التحليل والتعلم بنجاح.")
     except Exception as e:
         logging.error(f"خطأ إرسال التقرير: {e}")
 
 # ===========================================================
-# 6. المحرك الرئيسي للفحص
+# 5. المحرك الرئيسي للفحص
 # ===========================================================
 def run_smart_scan(force=False):
     global audit_sent_today, last_audit_date
@@ -265,12 +273,12 @@ def run_smart_scan(force=False):
         last_audit_date = today_str
 
     if not force and not is_market_open():
-        msg = f"⏳ [{now_cairo.strftime('%H:%M')} مصر] السوق مغلق حالياً. الفحص التلقائي يعمل فقط أثناء وقت التداول لتوفير الموارد."
+        msg = f"⏳ [{now_cairo.strftime('%H:%M')} مصر] السوق مغلق حالياً."
         logging.info(msg)
         return msg
 
     config = get_learned_config()
-    logging.info(f"🔍 بدء الفحص الذكي للأسهم [{'تشغيل يدوي' if force else now_cairo.strftime('%H:%M مصر')}]...")
+    logging.info(f"🔍 بدء الفحص الذكي للأسهم...")
     
     all_data = {}
     history = load_json(DATA_FILE, {})
@@ -279,7 +287,7 @@ def run_smart_scan(force=False):
         data = fetch_stock_data_safe(stock)
         if data:
             all_data[stock] = data
-            eval_res = evaluate_stock(data, now_cairo, config)
+            eval_res = evaluate_stock(data, config)
             
             prev_metrics = history.get(stock, {})
             history[stock] = {
@@ -293,39 +301,36 @@ def run_smart_scan(force=False):
 
     save_json(DATA_FILE, history)
 
-    # تشغيل تقرير الإغلاق والتعلم اليومي عند الإغلاق (14:15 - 14:30)
+    # تشغيل تقرير التحليل الشامل والتعلم عند إغلاق الجلسة (14:15 - 14:30)
     if not force and now_cairo.hour == 14 and now_cairo.minute >= 15 and not audit_sent_today:
-        run_post_market_audit(all_data, history)
+        run_post_market_analysis(all_data, history)
         audit_sent_today = True
 
-    summary = f"✅ اكتمل الفحص.\n📊 تم فحص: {len(all_data)}/{len(STOCKS)} سهم."
+    # إذا تم تشغيله يدوياً عبر /analyze
+    if force:
+        run_post_market_analysis(all_data, history)
+        return "✅ تم تنفيذ التحليل الشامل وتحديث المقاييس بنجاح."
+
+    summary = f"✅ اكتمل الفحص. تم فحص {len(all_data)} سهم."
     logging.info(summary)
     return summary
 
 # ===========================================================
-# 7. الأوامر التفاعلية المنظمة
+# 6. الأوامر التفاعلية
 # ===========================================================
 @bot.message_handler(commands=['scan'])
 def handle_manual_scan(message):
-    """أمر الفحص العادي المحمي بوقت التداول فقط"""
     if not is_market_open():
-        bot.reply_to(
-            message, 
-            "⏳ **السوق مغلق حالياً.**\n"
-            "أمر `/scan` يعمل فقط أثناء ساعات تداول البورصة المصرية (10:00 ص - 2:30 ظ) لتوفير موارد السيرفر.\n"
-            "إذا أردت تجربة الفحص القسري خارج الجلسة، استخدم الأمر: `/force`",
-            parse_mode="Markdown"
-        )
+        bot.reply_to(message, "⏳ السوق مغلق حالياً. أمر `/scan` يعمل فقط أثناء وقت التداول.", parse_mode="Markdown")
         return
-
-    bot.reply_to(message, "🚀 جاري بدء الفحص المباشر في سوق التداول...")
+    bot.reply_to(message, "🚀 جاري بدء الفحص المباشر...")
     result = run_smart_scan(force=True)
     bot.send_message(message.chat.id, result)
 
-@bot.message_handler(commands=['force'])
-def handle_force_scan(message):
-    """أمر تجربة الفحص القسري خارج الجلسة"""
-    bot.reply_to(message, "⚠️ جاري تشغيل فحص قسري وتجاوز قيود التوقيت...")
+@bot.message_handler(commands=['analyze'])
+def handle_analyze(message):
+    """أمر تشغيل التحليل اليومي الشامل وتحديث المقاييس فوراً في أي وقت"""
+    bot.reply_to(message, "📊 جاري إجراء التحليل الشامل لجميع الأسهم وتحديث المقاييس التكيفية...")
     result = run_smart_scan(force=True)
     bot.send_message(message.chat.id, result)
 
@@ -333,5 +338,6 @@ if __name__ == "__main__":
     if os.environ.get("RUN_MODE") == "CRON":
         run_smart_scan(force=False)
     else:
-        logging.info("🤖 البوت يعمل باستمرار ويستمع لأمر (/scan)...")
+        logging.info("🤖 البوت يعمل باستمرار ويستمع للأوامر (/scan, /analyze)...")
         bot.infinity_polling()
+        
