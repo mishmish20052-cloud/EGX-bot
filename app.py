@@ -2,10 +2,11 @@ import os
 import sys
 import time
 import json
+import random
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import requests
+import telebot
 from tradingview_ta import TA_Handler, Interval
 
 # ===========================================================
@@ -18,63 +19,49 @@ logging.basicConfig(
 
 CAIRO_TZ = ZoneInfo("Africa/Cairo")
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5418506244")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "5418506244")
+
+bot = telebot.TeleBot(BOT_TOKEN)
 
 DATA_FILE = "daily_history.json"
 PENDING_FILE = "pending_signals.json"
 TRADES_FILE = "today_trades.json"
+CONFIG_FILE = "strategy_config.json"  # ملف المعايير الذكية المتعلمة
 
-# قاموس الأسهم يربط رمز TradingView برمز مباشر مصر لتسهيل البحث
+audit_sent_today = False
+last_audit_date = None
+
 EGX33_SYMBOLS_MAP = {
-    "ABUK": "ABUK.CA (أبو قير للأسمدة)",
-    "MFPC": "MFPC.CA (موبكو)",
-    "SKPC": "SKPC.CA (سيدبك)",
-    "AMOC": "AMOC.CA (أموك)",
-    "MBSC": "MBSC.CA (مصر بني سويف للأسمنت)",
-    "SCEM": "SCEM.CA (سيناء للأسمنت)",
-    "TMGH": "TMGH.CA (طلعت مصطفى)",
-    "OCDI": "OCDI.CA (سوديك)",
-    "MASR": "MASR.CA (مدينة مصر)",
-    "EMFD": "EMFD.CA (إعمار مصر)",
-    "ORAS": "ORAS.CA (أوراسكوم للإنشاء)",
-    "ORHD": "ORHD.CA (أوراسكوم التنمية)",
-    "HELI": "HELI.CA (مصر الجديدة للإسكان)",
-    "CLHO": "CLHO.CA (كليوباترا)",
-    "ISPH": "ISPH.CA (ابن سينا فارما)",
-    "RMDA": "RMDA.CA (العاشر من رمضان - رميدا)",
-    "PHAR": "PHAR.CA (إيبارشيو - فاركو)",
-    "JUFO": "JUFO.CA (جهينة)",
-    "OLFI": "OLFI.CA (عبور لاند)",
-    "SUGR": "SUGR.CA (الدلتا للسكر)",
-    "EFID": "EFID.CA (إدفيتا)",
-    "EFIH": "EFIH.CA (إي فاينانس)",
-    "FWRY": "FWRY.CA (فوري)",
-    "ETEL": "ETEL.CA (المصرية للاتصالات)",
-    "ALCN": "ALCN.CA (القناة للتوكيلات)",
-    "CSAG": "CSAG.CA (القاهرة للزيوت)",
-    "ORWE": "ORWE.CA (النساجون الشرقيون)",
-    "ARAB": "ARAB.CA (عربية حجيج)",
-    "CICH": "CICH.CA (سي آي كابيتال)",
-    "EALR": "EALR.CA (مصر للألومنيوم)"
+    "ABUK": "ABUK.CA (أبو قير للأسمدة)", "MFPC": "MFPC.CA (موبكو)",
+    "SKPC": "SKPC.CA (سيدبك)", "AMOC": "AMOC.CA (أموك)",
+    "MBSC": "MBSC.CA (مصر بني سويف للأسمنت)", "SCEM": "SCEM.CA (سيناء للأسمنت)",
+    "TMGH": "TMGH.CA (طلعت مصطفى)", "OCDI": "OCDI.CA (سوديك)",
+    "MASR": "MASR.CA (مدينة مصر)", "EMFD": "EMFD.CA (إعمار مصر)",
+    "ORAS": "ORAS.CA (أوراسكوم للإنشاء)", "ORHD": "ORHD.CA (أوراسكوم التنمية)",
+    "HELI": "HELI.CA (مصر الجديدة للإسكان)", "CLHO": "CLHO.CA (كليوباترا)",
+    "ISPH": "ISPH.CA (ابن سينا فارما)", "RMDA": "RMDA.CA (العاشر من رمضان - رميدا)",
+    "PHAR": "PHAR.CA (إيبارشيو - فاركو)", "JUFO": "JUFO.CA (جهينة)",
+    "OLFI": "OLFI.CA (عبور لاند)", "SUGR": "SUGR.CA (الدلتا للسكر)",
+    "EFID": "EFID.CA (إدفيتا)", "EFIH": "EFIH.CA (إي فاينانس)",
+    "FWRY": "FWRY.CA (فوري)", "ETEL": "ETEL.CA (المصرية للاتصالات)",
+    "ALCN": "ALCN.CA (القناة للتوكيلات)", "CSAG": "CSAG.CA (القاهرة للزيوت)",
+    "ORWE": "ORWE.CA (النساجون الشرقيون)", "ARAB": "ARAB.CA (عربية حجيج)",
+    "CICH": "CICH.CA (سي آي كابيتال)", "EALR": "EALR.CA (مصر للألومنيوم)"
 }
 
-EGX33_SYMBOLS = list(EGX33_SYMBOLS_MAP.keys())
-
-_cache = {}
+STOCKS = list(EGX33_SYMBOLS_MAP.keys())
 
 # ===========================================================
-# 2. دوال مساعدة لإدارة JSON والتليجرام
+# 2. دوال التخزين وإدارة استراتيجية التعلم
 # ===========================================================
 def load_json(file_path, default=None):
-    if default is None:
-        default = {}
+    if default is None: default = {}
     if os.path.exists(file_path):
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
-            logging.warning(f"تعذر قراءة {file_path}: {e}")
+        except Exception:
             return default
     return default
 
@@ -85,31 +72,22 @@ def save_json(file_path, data):
     except Exception as e:
         logging.error(f"فشل حفظ {file_path}: {e}")
 
-def send_telegram(message: str):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.warning("⚠️ بيانات تليجرام غير مضافة.")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
+def get_learned_config():
+    """تحميل إعدادات الاستراتيجية المكيّفة تلقائياً"""
+    default_config = {
+        "min_rvol_trend": 1.1,
+        "min_score": 65,
+        "rsi_min": 45.0,
+        "rsi_max": 68.0,
+        "learned_days": 0
     }
-    try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code != 200:
-            logging.error(f"خطأ تليجرام: {res.text}")
-    except Exception as e:
-        logging.error(f"خطأ اتصال بتليجرام: {e}")
+    return load_json(CONFIG_FILE, default_config)
 
 # ===========================================================
-# 3. جلب بيانات الأسهم مع الحماية من الحظر (Rate Limit Protection)
+# 3. جلب بيانات الأسهم والتوقيت
 # ===========================================================
-def fetch_stock_data(symbol: str, retries: int = 2):
-    if symbol in _cache:
-        return _cache[symbol]
-    
-    for attempt in range(retries + 1):
+def fetch_stock_data_safe(symbol, max_retries=3):
+    for attempt in range(max_retries):
         try:
             handler = TA_Handler(
                 symbol=symbol,
@@ -119,7 +97,7 @@ def fetch_stock_data(symbol: str, retries: int = 2):
             )
             analysis = handler.get_analysis()
             ind = analysis.indicators
-            
+
             close = ind.get("close", 0)
             open_p = ind.get("open", 0)
             volume = ind.get("volume", 0)
@@ -128,12 +106,12 @@ def fetch_stock_data(symbol: str, retries: int = 2):
             ema50 = ind.get("EMA50", 0)
             macd = ind.get("MACD.macd", 0)
             macd_signal = ind.get("MACD.signal", 0)
-            
+
             change_pct = ((close - open_p) / open_p * 100) if open_p > 0 else 0
             volume_sma20 = ind.get("volume.SMA20", volume)
             rvol = (volume / volume_sma20) if (volume_sma20 and volume_sma20 > 0) else 1.0
-            
-            data = {
+
+            return {
                 "symbol": symbol,
                 "close": close,
                 "change_pct": change_pct,
@@ -145,360 +123,215 @@ def fetch_stock_data(symbol: str, retries: int = 2):
                 "macd_signal": macd_signal,
                 "is_green": close > open_p
             }
-            _cache[symbol] = data
-            return data
         except Exception as e:
-            if "429" in str(e) and attempt < retries:
-                time.sleep(1.5)
-                continue
-            logging.warning(f"تعذر جلب بيانات السهم {symbol}: {e}")
-            return None
+            if "429" in str(e) or "Too Many Requests" in str(e):
+                wait_time = (attempt + 1) * 2.0 + random.uniform(0.5, 1.5)
+                time.sleep(wait_time)
+            else:
+                logging.error(f"❌ خطأ في جلب {symbol}: {e}")
+                break
+    return None
 
-# ===========================================================
-# 4. محرك التقييم وإدارة المخاطر (Dynamic Risk & TP3 Engine)
-# ===========================================================
-def evaluate_stock(data: dict, current_time, history: dict):
-    symbol = data["symbol"]
-    hour_min = current_time.hour + current_time.minute / 60.0
+def is_market_open():
+    """التحقق التام من توقيت البورصة المصرية (10:00 إلى 14:30) من الأحد للخميس"""
+    now_cairo = datetime.now(CAIRO_TZ)
+    if now_cairo.weekday() in [4, 5]: # الجمعة والسبت عطلة
+        return False
     
-    if hour_min < 11.5:
-        min_rvol_trend = 1.3
-    elif hour_min < 13.5:
-        min_rvol_trend = 0.9
-    else:
-        min_rvol_trend = 1.1
+    start_time = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
+    end_time = now_cairo.replace(hour=14, minute=30, second=0, microsecond=0)
+    return start_time <= now_cairo <= end_time
 
+# ===========================================================
+# 4. محرك التقييم الديناميكي ومحرك التعلم اليومي
+# ===========================================================
+def evaluate_stock(data, current_time, config):
     rsi = data["rsi"]
     rvol = data["rvol"]
     change_pct = data["change_pct"]
     close = data["close"]
     
     if change_pct >= 8.5:
-        return {"type": "None", "score": 0, "details": "قريب من الحد الأقصى اليومي"}
+        return {"type": "None", "score": 0}
 
+    # مسار الانفجار الفوري
     if rvol >= 2.5 and change_pct >= 1.5 and (50.0 <= rsi <= 72.0):
-        return {
-            "type": "Super Breakout 🚀",
-            "score": 95,
-            "instant": True,
-            "details": f"سيولة فائقة {round(rvol,2)}x وتغير +{round(change_pct,2)}%"
-        }
+        return {"type": "Super Breakout 🚀", "score": 95, "instant": True}
 
-    if rvol >= 1.8 and (0.5 <= change_pct <= 2.0) and close > data["ema25"]:
-        return {
-            "type": "Moderate Breakout ⚡",
-            "score": 85,
-            "instant": False,
-            "details": f"انفجار معتدل مبكر {round(rvol,2)}x وتغير +{round(change_pct,2)}%"
-        }
-
+    # التقييم بناءً على المعايير الديناميكية المتعلمة
     score = 0
-    if 45.0 <= rsi <= 63.0:
+    if config["rsi_min"] <= rsi <= config["rsi_max"]:
         score += 30
-    elif 63.0 < rsi <= 68.0:
-        score += 15
-        
+    
     if close > data["ema25"]: score += 20
     if close > data["ema50"]: score += 20
     if data["macd"] > data["macd_signal"]: score += 15
     if data["is_green"]: score += 15
 
-    prev_data = history.get(symbol, {})
-    if prev_data.get("max_score", 0) >= 55 and rvol >= 1.0:
-        score += 15
+    if score >= config["min_score"] and rvol >= config["min_rvol_trend"]:
+        return {"type": "Regular Trend 📈", "score": score, "instant": False}
 
-    if score >= 65 and rvol >= min_rvol_trend:
-        return {
-            "type": "Regular Trend 📈",
-            "score": score,
-            "instant": False,
-            "details": f"اتجاه منتظم بـ تقييم ({score}/100) وسيولة {round(rvol,2)}x"
-        }
+    return {"type": "None", "score": score, "instant": False}
 
-    return {"type": "None", "score": score, "instant": False, "details": "لم يتجاوز الفلتر"}
-
-def calculate_targets(entry_price: float):
-    sl = round(entry_price * 0.98, 2)
-    tp1 = round(entry_price * 1.03, 2)
-    tp2 = round(entry_price * 1.06, 2)
-    tp3 = round(entry_price * 1.10, 2)
-    return sl, tp1, tp2, tp3
-
-def send_opportunity_alert(symbol, data, eval_res):
-    close = data["close"]
-    sl, tp1, tp2, tp3 = calculate_targets(close)
-    mubasher_symbol = EGX33_SYMBOLS_MAP.get(symbol, symbol)
+def update_learning_engine(all_data, history):
+    """خوارزمية التعلم الذاتي: تعديل المعايير بناءً على أداء أسهم اليوم"""
+    config = get_learned_config()
     
-    loss_amount = round(10000 * 0.02)
-    tp1_amount = round(10000 * 0.03)
-    tp2_amount = round(10000 * 0.06)
-    tp3_amount = round(10000 * 0.10)
-
-    msg = (
-        f"🎯 **تنبيه فرصة تداول [{eval_res['type']}]**\n\n"
-        f"🔹 **السهم:** `{symbol}` | **مباشر:** `{mubasher_symbol}`\n"
-        f"💵 **سعر الدخول:** {close} ج.م\n"
-        f"🏆 **التقييم الفني:** {eval_res['score']}/100\n"
-        f"📊 **RSI:** {round(data['rsi'], 1)} | **RVOL:** {round(data['rvol'], 2)}x\n\n"
-        f"🎯 **الأهداف ووقف الخسارة الديناميكي:**\n"
-        f"├ 🛑 **وقف الخسارة (SL):** `{sl}` ج.م (-2.0%)\n"
-        f"│  └ 📉 الخسارة المتوقعة: -{loss_amount} ج.م / لكل 10,000 ج.م\n"
-        f"├ 🎯 **الهدف الأول (TP1):** `{tp1}` ج.م (+3.0%)\n"
-        f"│  └ 📈 الربح: +{tp1_amount} ج.م ➔ *يرفع الستوب تلقائياً إلى {close} ج.م (الدخول)*\n"
-        f"├ 🚀 **الهدف الثاني (TP2):** `{tp2}` ج.م (+6.0%)\n"
-        f"│  └ 📈 الربح: +{tp2_amount} ج.م ➔ *يرفع الستوب تلقائياً إلى {tp1} ج.م (TP1)*\n"
-        f"└ 🚀🚀 **الهدف الثالث (TP3):** `{tp3}` ج.م (+10.0%)\n"
-        f"   └ 📈 الربح: +{tp3_amount} ج.م ➔ *يرفع الستوب تلقائياً إلى {tp2} ج.م (TP2)*\n\n"
-        f"📝 {eval_res['details']}"
-    )
-    send_telegram(msg)
+    winning_rvols = []
+    winning_rsis = []
     
-    trades = load_json(TRADES_FILE, {})
-    trades[symbol] = {
-        "entry": close,
-        "sl": sl,
-        "tp1": tp1,
-        "tp2": tp2,
-        "tp3": tp3,
-        "time": datetime.now(CAIRO_TZ).strftime('%H:%M'),
-        "score": eval_res["score"],
-        "max_seen": close
-    }
-    save_json(TRADES_FILE, trades)
-
-# ===========================================================
-# 5. نظام التأكيد المزدوج (Double Confirmation Engine)
-# ===========================================================
-def process_pending_signals(current_data):
-    pending = load_json(PENDING_FILE, {})
-    if not pending:
-        return
-
-    updated_pending = {}
-    for symbol, sig in pending.items():
-        if symbol not in current_data:
-            continue
+    for sym, metrics in history.items():
+        start_price = metrics.get("first_price", 0)
+        close_price = all_data.get(sym, {}).get("close", 0)
         
-        curr = current_data[symbol]
-        prev_close = sig["entry_price"]
-        prev_rvol = sig["rvol"]
-        
-        price_change = ((curr["close"] - prev_close) / prev_close) * 100
-        vol_ratio = curr["rvol"] / prev_rvol if prev_rvol > 0 else 1.0
-        
-        if price_change >= -0.5 and vol_ratio >= 0.8:
-            logging.info(f"✅ تم تأكيد إشارة السهم {symbol}")
-            eval_res = {
-                "type": f"مؤكد {sig['type']}",
-                "score": sig["score"],
-                "details": f"تأكيد الثبات السعري ({round(price_change, 2)}%) والسيولة"
-            }
-            send_opportunity_alert(symbol, curr, eval_res)
-        else:
-            logging.info(f"❌ تم إلغاء الإشارة المؤقتة للسهم {symbol}")
+        if start_price > 0 and close_price > 0:
+            change_pct = ((close_price - start_price) / start_price) * 100
             
-    save_json(PENDING_FILE, updated_pending)
+            # السهم يعتبر ناجحاً إذا حقق أرباحاً أعلى من +1.5%
+            if change_pct >= 1.5:
+                winning_rvols.append(metrics.get("rvol", 1.0))
+                winning_rsis.append(metrics.get("rsi", 50.0))
+
+    changes_log = []
+    
+    # تحسين السيولة المطلوبة إذا وُجد سلوك واضح
+    if winning_rvols:
+        avg_winner_rvol = sum(winning_rvols) / len(winning_rvols)
+        new_min_rvol = round(max(1.0, min(1.6, (config["min_rvol_trend"] + avg_winner_rvol) / 2)), 2)
+        if new_min_rvol != config["min_rvol_trend"]:
+            changes_log.append(f"• السيولة الأدنى (RVOL): تعدلت من `{config['min_rvol_trend']}x` إلى `{new_min_rvol}x`")
+            config["min_rvol_trend"] = new_min_rvol
+
+    # تحسين نطاق RSI
+    if winning_rsis:
+        avg_winner_rsi = sum(winning_rsis) / len(winning_rsis)
+        if avg_winner_rsi > 58:
+            config["rsi_min"] = round(min(52.0, config["rsi_min"] + 1.0), 1)
+            changes_log.append(f"• رفع حد RSI الأدنى إلى `{config['rsi_min']}` لتركيز الفرص القوية.")
+
+    config["learned_days"] += 1
+    save_json(CONFIG_FILE, config)
+    
+    return changes_log, config
 
 # ===========================================================
-# 6. تدقيق النتائج واختبار الفلاتر بنهاية اليوم (Advanced Post-Market Audit)
+# 5. تدقيق نهاية اليوم والتقرير التعليمي
 # ===========================================================
 def run_post_market_audit(all_data, history):
     trades = load_json(TRADES_FILE, {})
     
-    wins = 0
-    losses = 0
-    in_progress = 0
-    executed_details = ""
+    # تشغيل خوارزمية التعلم الذاتي
+    learning_changes, new_config = update_learning_engine(all_data, history)
     
-    # 1. تدقيق التوصيات التي أُرسلت بالفعل
-    if trades:
-        for symbol, t in trades.items():
-            if symbol in all_data:
-                curr_close = all_data[symbol]["close"]
-                entry = t["entry"]
-                sl = t["sl"]
-                tp1 = t["tp1"]
-                tp2 = t["tp2"]
-                tp3 = t.get("tp3", round(entry * 1.10, 2))
-                mubasher_name = EGX33_SYMBOLS_MAP.get(symbol, symbol)
-                
-                if curr_close >= tp3:
-                    status = "🎯🎯🎯 حقق الهدف الثالث (+10%)"
-                    wins += 1
-                elif curr_close >= tp2:
-                    status = "🎯🎯 حقق الهدف الثاني (+6%)"
-                    wins += 1
-                elif curr_close >= tp1:
-                    status = "🎯 حقق الهدف الأول (+3%)"
-                    wins += 1
-                elif curr_close <= sl:
-                    status = "🛑 ضرب وقف الخسارة (-2%)"
-                    losses += 1
-                else:
-                    status = "⏳ صفقة مستمرة/محايدة"
-                    in_progress += 1
-                    
-                executed_details += f"• `{mubasher_name}`: دخول {entry} | إغلاق {curr_close} ➔ {status}\n"
-
-    total_closed = wins + losses
-    win_rate = round((wins / total_closed * 100), 1) if total_closed > 0 else 0.0
-
-    # 2. تدقيق الفلاتر والفرص الكامنة (التي لم تُرسل فوراً)
-    filtered_protected = 0
-    filtered_missed = 0
-    candidates_details = ""
-
-    candidate_stocks = [
-        (sym, metrics) for sym, metrics in history.items()
-        if sym not in trades and metrics.get("max_score", 0) >= 60
-    ]
-    candidate_stocks.sort(key=lambda x: x[1].get("max_score", 0), reverse=True)
-
-    for sym, metrics in candidate_stocks[:5]:
-        mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
-        start_price = metrics.get("first_price", metrics.get("price", 0))
-        curr_close = all_data.get(sym, {}).get("close", metrics.get("price", 0))
-        
-        change_pct = round(((curr_close - start_price) / start_price) * 100, 2) if start_price > 0 else 0.0
-
-        if change_pct >= 1.5:
-            status_icon = "🚀 (فرصة صاعدة تم تفويتها)"
-            filtered_missed += 1
-        elif change_pct <= -0.5:
-            status_icon = "🛡️ (الفلتر حماك من هبوط)"
-            filtered_protected += 1
-        else:
-            status_icon = "↔️ (حركة محايدة)"
-
-        sign = "+" if change_pct > 0 else ""
-        candidates_details += (
-            f"• `{mb_name}` (تقييم {metrics.get('max_score', 0)}/100):\n"
-            f"  بداية {start_price} ➔ إغلاق {curr_close} ({sign}{change_pct}%) {status_icon}\n"
-        )
-
     green_count = sum(1 for d in all_data.values() if d["is_green"])
     avg_rvol = sum(d["rvol"] for d in all_data.values()) / len(all_data) if all_data else 1.0
 
-    # بناء نص التقرير للتليجرام
-    report = "🏁 **تقرير تدقيق الجلسة واختبار الفلاتر (End-of-Day Audit)**\n\n"
+    report = "🏁 **تقرير تدقيق الجلسة وتحديث الذكاء الاصطناعي (AI Digest)**\n\n"
     report += (
-        f"📊 **حالة البورصة العامة اليوم:**\n"
+        f"📊 **ملخص البورصة اليوم:**\n"
         f"├ أسهم صاعدة: {green_count}/{len(all_data)}\n"
         f"└ متوسط سيولة السوق: {round(avg_rvol, 2)}x\n\n"
     )
 
     if trades:
-        report += (
-            f"📈 **نتائج التوصيات المنفذة:**\n"
-            f"├ 🎯 صفقات رابحة: {wins}\n"
-            f"├ 🛑 صفقات خاسرة: {losses}\n"
-            f"├ ⏳ صفقات مستمرة: {in_progress}\n"
-            f"└ 🏆 **نسبة النجاح (Win Rate): {win_rate}%**\n\n"
-            f"📝 **تفاصيل أداء التوصيات:**\n{executed_details}\n"
-        )
+        report += f"📈 **عدد التوصيات المفعلة اليوم:** {len(trades)} صفقة.\n\n"
     else:
-        report += "ℹ️ **التوصيات المنفذة:** لم تُفعل أي صفقات على تليجرام اليوم.\n\n"
+        report += "ℹ️ **التوصيات:** لم تُفعل أي صفقات جديدة اليوم لحمايتك من التذبذب.\n\n"
 
-    if candidates_details:
-        report += (
-            f"🔍 **تدقيق الفلاتر والفرص الكامنة (غير المُرسلة):**\n"
-            f"{candidates_details}\n"
-            f"💡 **حصيلة كفاءة الفلتر اليوم:**\n"
-            f"├ 🛡️ صفقات كاذبة تم تفاديها: {filtered_protected}\n"
-            f"└ 🚀 فرص صاعدة تم تفويتها: {filtered_missed}\n"
-        )
+    # عرض نتائج التعلم والتحديث الذاتي
+    report += f"🧠 **تحديث المعايير الذكية (أيام التعلم: {new_config['learned_days']}):**\n"
+    if learning_changes:
+        for change in learning_changes:
+            report += f"{change}\n"
+    else:
+        report += "• تم التأكد من كفاءة المعايير الحالية واستمرار العمل بها للغد.\n"
 
-    send_telegram(report)
-    logging.info("📜 تم إرسال تقرير التدقيق النهائي المعدل بنجاح.")
+    try:
+        bot.send_message(CHAT_ID, report, parse_mode="Markdown")
+        logging.info("📜 تم إرسال تقرير التدقيق والتعلم بنجاح.")
+    except Exception as e:
+        logging.error(f"خطأ إرسال التقرير: {e}")
 
 # ===========================================================
-# 7. دالة الفحص والتحكم الزمني الذكي
+# 6. المحرك الرئيسي للفحص
 # ===========================================================
-def run_market_scan():
+def run_smart_scan(force=False):
+    global audit_sent_today, last_audit_date
     now_cairo = datetime.now(CAIRO_TZ)
-    current_time_str = now_cairo.strftime('%H:%M')
-    hour = now_cairo.hour
-    minute = now_cairo.minute
+    today_str = now_cairo.strftime("%Y-%m-%d")
 
-    start_market = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
-    end_market = now_cairo.replace(hour=14, minute=30, second=0, microsecond=0)
+    if last_audit_date != today_str:
+        audit_sent_today = False
+        last_audit_date = today_str
 
-    if not (start_market <= now_cairo <= end_market):
-        logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات التداول. خروج فوري لتوفير الموارد.")
-        sys.exit(0)
+    if not force and not is_market_open():
+        msg = f"⏳ [{now_cairo.strftime('%H:%M')} مصر] السوق مغلق حالياً. الفحص التلقائي يعمل فقط أثناء وقت التداول لتوفير الموارد."
+        logging.info(msg)
+        return msg
 
-    logging.info(f"🔍 بدء الفحص الذكي للأسهم [{current_time_str} مصر]...")
+    config = get_learned_config()
+    logging.info(f"🔍 بدء الفحص الذكي للأسهم [{'تشغيل يدوي' if force else now_cairo.strftime('%H:%M مصر')}]...")
+    
     all_data = {}
-    for symbol in EGX33_SYMBOLS:
-        data = fetch_stock_data(symbol)
+    history = load_json(DATA_FILE, {})
+
+    for stock in STOCKS:
+        data = fetch_stock_data_safe(stock)
         if data:
-            all_data[symbol] = data
+            all_data[stock] = data
+            eval_res = evaluate_stock(data, now_cairo, config)
+            
+            prev_metrics = history.get(stock, {})
+            history[stock] = {
+                "max_score": max(prev_metrics.get("max_score", 0), eval_res["score"]),
+                "first_price": prev_metrics.get("first_price", data["close"]),
+                "price": data["close"],
+                "rvol": data["rvol"],
+                "rsi": data["rsi"]
+            }
         time.sleep(0.3)
 
-    if not all_data:
-        logging.warning("⚠️ تعذر جلب بيانات الأسهم.")
-        sys.exit(0)
+    save_json(DATA_FILE, history)
 
-    history = load_json(DATA_FILE, {})
-    pending_to_add = load_json(PENDING_FILE, {})
-    today_results = history.copy()
+    # تشغيل تقرير الإغلاق والتعلم اليومي عند الإغلاق (14:15 - 14:30)
+    if not force and now_cairo.hour == 14 and now_cairo.minute >= 15 and not audit_sent_today:
+        run_post_market_audit(all_data, history)
+        audit_sent_today = True
 
-    # حسم تقرير الإغلاق مباشرة بين 14:15 و 14:30
-    if hour == 14 and minute >= 15:
-        logging.info(f"🏁 [{current_time_str} مصر] وقت إغلاق السوق - تشغيل تقرير التدقيق النهائي (Post-Market Audit)...")
-        run_post_market_audit(all_data, today_results)
-        sys.exit(0)
+    summary = f"✅ اكتمل الفحص.\n📊 تم فحص: {len(all_data)}/{len(STOCKS)} سهم."
+    logging.info(summary)
+    return summary
 
-    # التحقق من أوقات الفحص خلال الجلسة
-    if hour == 10 and minute < 45:
-        is_scan_time = True
-    else:
-        is_scan_time = (minute % 15 == 0)
+# ===========================================================
+# 7. الأوامر التفاعلية المنظمة
+# ===========================================================
+@bot.message_handler(commands=['scan'])
+def handle_manual_scan(message):
+    """أمر الفحص العادي المحمي بوقت التداول فقط"""
+    if not is_market_open():
+        bot.reply_to(
+            message, 
+            "⏳ **السوق مغلق حالياً.**\n"
+            "أمر `/scan` يعمل فقط أثناء ساعات تداول البورصة المصرية (10:00 ص - 2:30 ظ) لتوفير موارد السيرفر.\n"
+            "إذا أردت تجربة الفحص القسري خارج الجلسة، استخدم الأمر: `/force`",
+            parse_mode="Markdown"
+        )
+        return
 
-    if not is_scan_time:
-        logging.info(f"💤 [{current_time_str} مصر] فترة الهدوء.")
-        sys.exit(0)
+    bot.reply_to(message, "🚀 جاري بدء الفحص المباشر في سوق التداول...")
+    result = run_smart_scan(force=True)
+    bot.send_message(message.chat.id, result)
 
-    process_pending_signals(all_data)
-
-    for symbol, data in all_data.items():
-        eval_res = evaluate_stock(data, now_cairo, history)
-
-        prev_metrics = today_results.get(symbol, {})
-        prev_max_rvol = prev_metrics.get("max_rvol", 0.0)
-        prev_max_score = prev_metrics.get("max_score", 0)
-        first_price = prev_metrics.get("first_price", data["close"])
-
-        today_results[symbol] = {
-            "max_score": max(prev_max_score, eval_res["score"]),
-            "first_price": first_price,
-            "price": data["close"],
-            "rvol": data["rvol"],
-            "max_rvol": max(prev_max_rvol, data["rvol"]),
-            "rsi": data["rsi"],
-            "type": eval_res["type"] if eval_res["type"] != "None" else prev_metrics.get("type", "None")
-        }
-
-        if eval_res["type"] != "None":
-            if eval_res.get("instant", False):
-                send_opportunity_alert(symbol, data, eval_res)
-            else:
-                trades = load_json(TRADES_FILE, {})
-                if symbol not in pending_to_add and symbol not in trades:
-                    pending_to_add[symbol] = {
-                        "entry_price": data["close"],
-                        "rvol": data["rvol"],
-                        "score": eval_res["score"],
-                        "type": eval_res["type"],
-                        "time": current_time_str
-                    }
-
-    save_json(DATA_FILE, today_results)
-    save_json(PENDING_FILE, pending_to_add)
-
-    logging.info("✅ اكتمل الفحص بنجاح. الخروج الفوري.")
-    sys.exit(0)
+@bot.message_handler(commands=['force'])
+def handle_force_scan(message):
+    """أمر تجربة الفحص القسري خارج الجلسة"""
+    bot.reply_to(message, "⚠️ جاري تشغيل فحص قسري وتجاوز قيود التوقيت...")
+    result = run_smart_scan(force=True)
+    bot.send_message(message.chat.id, result)
 
 if __name__ == "__main__":
-    run_market_scan()
-                
+    if os.environ.get("RUN_MODE") == "CRON":
+        run_smart_scan(force=False)
+    else:
+        logging.info("🤖 البوت يعمل باستمرار ويستمع لأمر (/scan)...")
+        bot.infinity_polling()
