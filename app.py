@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import json
 import logging
 from datetime import datetime
@@ -102,52 +103,56 @@ def send_telegram(message: str):
         logging.error(f"خطأ اتصال بتليجرام: {e}")
 
 # ===========================================================
-# 3. جلب بيانات الأسهم مع التخزين اللحظي (In-Memory Cache)
+# 3. جلب بيانات الأسهم مع الحماية من الحظر (Rate Limit Protection)
 # ===========================================================
-def fetch_stock_data(symbol: str):
+def fetch_stock_data(symbol: str, retries: int = 2):
     if symbol in _cache:
         return _cache[symbol]
     
-    try:
-        handler = TA_Handler(
-            symbol=symbol,
-            screener="egypt",
-            exchange="EGX",
-            interval=Interval.INTERVAL_15_MINUTES
-        )
-        analysis = handler.get_analysis()
-        ind = analysis.indicators
-        
-        close = ind.get("close", 0)
-        open_p = ind.get("open", 0)
-        volume = ind.get("volume", 0)
-        rsi = ind.get("RSI", 50)
-        ema25 = ind.get("EMA25", 0)
-        ema50 = ind.get("EMA50", 0)
-        macd = ind.get("MACD.macd", 0)
-        macd_signal = ind.get("MACD.signal", 0)
-        
-        change_pct = ((close - open_p) / open_p * 100) if open_p > 0 else 0
-        volume_sma20 = ind.get("volume.SMA20", volume)
-        rvol = (volume / volume_sma20) if (volume_sma20 and volume_sma20 > 0) else 1.0
-        
-        data = {
-            "symbol": symbol,
-            "close": close,
-            "change_pct": change_pct,
-            "rsi": rsi,
-            "rvol": rvol,
-            "ema25": ema25,
-            "ema50": ema50,
-            "macd": macd,
-            "macd_signal": macd_signal,
-            "is_green": close > open_p
-        }
-        _cache[symbol] = data
-        return data
-    except Exception as e:
-        logging.warning(f"تعذر جلب بيانات السهم {symbol}: {e}")
-        return None
+    for attempt in range(retries + 1):
+        try:
+            handler = TA_Handler(
+                symbol=symbol,
+                screener="egypt",
+                exchange="EGX",
+                interval=Interval.INTERVAL_15_MINUTES
+            )
+            analysis = handler.get_analysis()
+            ind = analysis.indicators
+            
+            close = ind.get("close", 0)
+            open_p = ind.get("open", 0)
+            volume = ind.get("volume", 0)
+            rsi = ind.get("RSI", 50)
+            ema25 = ind.get("EMA25", 0)
+            ema50 = ind.get("EMA50", 0)
+            macd = ind.get("MACD.macd", 0)
+            macd_signal = ind.get("MACD.signal", 0)
+            
+            change_pct = ((close - open_p) / open_p * 100) if open_p > 0 else 0
+            volume_sma20 = ind.get("volume.SMA20", volume)
+            rvol = (volume / volume_sma20) if (volume_sma20 and volume_sma20 > 0) else 1.0
+            
+            data = {
+                "symbol": symbol,
+                "close": close,
+                "change_pct": change_pct,
+                "rsi": rsi,
+                "rvol": rvol,
+                "ema25": ema25,
+                "ema50": ema50,
+                "macd": macd,
+                "macd_signal": macd_signal,
+                "is_green": close > open_p
+            }
+            _cache[symbol] = data
+            return data
+        except Exception as e:
+            if "429" in str(e) and attempt < retries:
+                time.sleep(1.5)  # انتظار ثانية ونصف عند حظر الطلبات
+                continue
+            logging.warning(f"تعذر جلب بيانات السهم {symbol}: {e}")
+            return None
 
 # ===========================================================
 # 4. محرك التقييم وإدارة المخاطر (Dynamic Risk & TP3 Engine)
@@ -369,7 +374,7 @@ def run_post_market_audit(all_data, history):
     logging.info("📜 تم إرسال تقرير التدقيق النهائي بنجاح.")
 
 # ===========================================================
-# 7. دالة الفحص والتحكم الزمني الذكي (المعدلة بالكامل)
+# 7. دالة الفحص والتحكم الزمني الذكي
 # ===========================================================
 def run_market_scan():
     now_cairo = datetime.now(CAIRO_TZ)
@@ -386,13 +391,14 @@ def run_market_scan():
         logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات التداول. خروج فوري لتوفير الموارد.")
         sys.exit(0)
 
-    # جلب البيانات
+    # جلب البيانات مع فاصل زمني لحماية البوت من حظر Rate Limit (HTTP 429)
     logging.info(f"🔍 بدء الفحص الذكي للأسهم [{current_time_str} مصر]...")
     all_data = {}
     for symbol in EGX33_SYMBOLS:
         data = fetch_stock_data(symbol)
         if data:
             all_data[symbol] = data
+        time.sleep(0.3)  # فاصل زمني 300 مللي ثانية بين كل طلب والآخر
 
     if not all_data:
         logging.warning("⚠️ تعذر جلب بيانات الأسهم.")
@@ -402,7 +408,7 @@ def run_market_scan():
     pending_to_add = load_json(PENDING_FILE, {})
     today_results = history.copy()
 
-    # 2. حسم تقرير الإغلاق مباشرة: إذا كان الوقت بين 14:15 و 14:30 يتم إرسال التقرير فوراً والخروج
+    # 2. تشغيل تقرير التدقيق النهائي فوراً عند إغلاق السوق (بين 14:15 و 14:30)
     if hour == 14 and minute >= 15:
         logging.info(f"🏁 [{current_time_str} مصر] وقت إغلاق السوق - تشغيل تقرير التدقيق النهائي (Post-Market Audit)...")
         run_post_market_audit(all_data, today_results)
