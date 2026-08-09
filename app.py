@@ -6,6 +6,7 @@ import random
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import requests
 import telebot
 from tradingview_ta import TA_Handler, Interval
 
@@ -72,8 +73,17 @@ def save_json(file_path, data):
     except Exception as e:
         logging.error(f"فشل حفظ {file_path}: {e}")
 
+def send_telegram_direct(message: str):
+    """إرسال مباشر عبر API التليجرام دون الحاجة للـ polling"""
+    if not BOT_TOKEN or not CHAT_ID: return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logging.error(f"خطأ إرسال تليجرام: {e}")
+
 def get_learned_config():
-    """تحميل القواعد والمقاييس الذكية الحالية"""
     default_config = {
         "min_rvol_trend": 1.1,
         "min_score": 65,
@@ -174,7 +184,6 @@ def run_post_market_analysis(all_data, history):
     false_signals = []
     missed_opportunities = []
 
-    # 1. تحليل كل سهم في السوق بنهاية الجلسة
     for sym, data in all_data.items():
         mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
         hist_info = history.get(sym, {})
@@ -184,7 +193,6 @@ def run_post_market_analysis(all_data, history):
         actual_change = round(((curr_p - start_p) / start_p) * 100, 2) if start_p > 0 else 0.0
         max_score = hist_info.get("max_score", 0)
 
-        # أ) فحص الإشارات الصادرة (المنفذة)
         if sym in trades:
             entry_p = trades[sym]["entry"]
             perf = round(((curr_p - entry_p) / entry_p) * 100, 2)
@@ -196,9 +204,7 @@ def run_post_market_analysis(all_data, history):
                     f"  🔍 السبب الفني: سيولة كاذبة (RVOL: {round(data['rvol'],2)}x) وبدء جني أرباح."
                 )
 
-        # ب) فحص الفرص الضائعة (أسهم ارتفعت ولكن البوت لم يستخرجها)
         elif actual_change >= 2.0 and max_score < config["min_score"]:
-            # تشخيص سبب الاستبعاد
             reasons = []
             if data["rvol"] < config["min_rvol_trend"]:
                 reasons.append(f"سيولة أقل من المطلوب ({round(data['rvol'],2)}x < {config['min_rvol_trend']}x)")
@@ -213,35 +219,32 @@ def run_post_market_analysis(all_data, history):
                 f"  🔍 سبب التفويت: {reason_str}"
             )
 
-    # 2. خوارزمية التعلم وتعديل المقاييس تلقائياً
     adjustments_made = []
-    
-    # تعديل المعايير إذا كانت هناك فرص ضائعة كثيرة بسبب السيولة
-    if len(missed_opportunities) >= 2:
-        if config["min_rvol_trend"] > 0.9:
-            old_val = config["min_rvol_trend"]
-            config["min_rvol_trend"] = round(config["min_rvol_trend"] - 0.1, 2)
-            adjustments_made.append(f"• خفض شرط السيولة الأدنى (RVOL): من `{old_val}x` إلى `{config['min_rvol_trend']}x` لعدم تفويت الأسهم الصاعدة.")
+    if len(missed_opportunities) >= 2 and config["min_rvol_trend"] > 0.9:
+        old_val = config["min_rvol_trend"]
+        config["min_rvol_trend"] = round(config["min_rvol_trend"] - 0.1, 2)
+        adjustments_made.append(f"• خفض شرط السيولة الأدنى (RVOL): من `{old_val}x` إلى `{config['min_rvol_trend']}x` لعدم تفويت الأسهم الصاعدة.")
 
-    # تعديل المعايير إذا وُجدت إشارات كاذبة
-    if len(false_signals) >= 1:
-        if config["min_score"] < 75:
-            old_score = config["min_score"]
-            config["min_score"] += 5
-            adjustments_made.append(f"• رفع حد التقييم الأدنى (Score): من `{old_score}` إلى `{config['min_score']}` لفلترة الإشارات الكاذبة.")
+    if len(false_signals) >= 1 and config["min_score"] < 75:
+        old_score = config["min_score"]
+        config["min_score"] += 5
+        adjustments_made.append(f"• رفع حد التقييم الأدنى (Score): من `{old_score}` إلى `{config['min_score']}` لفلترة الإشارات الكاذبة.")
 
     config["learned_days"] += 1
     save_json(CONFIG_FILE, config)
 
-    # 3. صياغة التقرير التفصيلي الشامل
+    green_count = sum(1 for d in all_data.values() if d["is_green"])
+    avg_rvol = sum(d["rvol"] for d in all_data.values()) / len(all_data) if all_data else 1.0
+
     report = "🏁 **تقرير تحليل الجلسة والتعلم الآلي (Post-Market AI Report)**\n\n"
+    report += f"📊 **ملخص البورصة اليوم:** أسهم صاعدة {green_count}/{len(all_data)} | متوسط السيولة: {round(avg_rvol, 2)}x\n\n"
     
     report += "✅ **1. الإشارات الصحيحة (الرابحة):**\n"
-    report += "\n".join(correct_signals) if correct_signals else "لا يوجد إشارات ناجحة اليوم.\n"
+    report += "\n".join(correct_signals) if correct_signals else "لا توجد إشارات ناجحة اليوم.\n"
     report += "\n\n"
 
     report += "❌ **2. الإشارات الخاطئة وتجميع الأسباب:**\n"
-    report += "\n".join(false_signals) if false_signals else "لا توجد إشارات كاذبة اليوم (كفاءة ممتازة).\n"
+    report += "\n".join(false_signals) if false_signals else "لا توجد إشارات كاذبة اليوم.\n"
     report += "\n\n"
 
     report += "🚀 **3. الفرص الضائعة وتشخيص أسباب عدم التقاطها:**\n"
@@ -249,16 +252,10 @@ def run_post_market_analysis(all_data, history):
     report += "\n\n"
 
     report += f"🧠 **4. التعديلات التلقائية على المقاييس (أيام التعلم: {config['learned_days']}):**\n"
-    if adjustments_made:
-        report += "\n".join(adjustments_made)
-    else:
-        report += "• المقاييس الحالية أثبتت كفاءتها ولم تتطلب أي تعديل للجلسة القادمة."
+    report += "\n".join(adjustments_made) if adjustments_made else "• المقاييس الحالية أثبتت كفاءتها ولم تتطلب أي تعديل للجلسة القادمة."
 
-    try:
-        bot.send_message(CHAT_ID, report, parse_mode="Markdown")
-        logging.info("📜 تم إرسال تقرير التحليل والتعلم بنجاح.")
-    except Exception as e:
-        logging.error(f"خطأ إرسال التقرير: {e}")
+    send_telegram_direct(report)
+    logging.info("📜 تم إرسال تقرير التحليل والتعلم بنجاح.")
 
 # ===========================================================
 # 5. المحرك الرئيسي للفحص
@@ -301,12 +298,10 @@ def run_smart_scan(force=False):
 
     save_json(DATA_FILE, history)
 
-    # تشغيل تقرير التحليل الشامل والتعلم عند إغلاق الجلسة (14:15 - 14:30)
     if not force and now_cairo.hour == 14 and now_cairo.minute >= 15 and not audit_sent_today:
         run_post_market_analysis(all_data, history)
         audit_sent_today = True
 
-    # إذا تم تشغيله يدوياً عبر /analyze
     if force:
         run_post_market_analysis(all_data, history)
         return "✅ تم تنفيذ التحليل الشامل وتحديث المقاييس بنجاح."
@@ -316,7 +311,7 @@ def run_smart_scan(force=False):
     return summary
 
 # ===========================================================
-# 6. الأوامر التفاعلية
+# 6. الأوامر التفاعلية وطريقة التشغيل الحازمة
 # ===========================================================
 @bot.message_handler(commands=['scan'])
 def handle_manual_scan(message):
@@ -329,15 +324,17 @@ def handle_manual_scan(message):
 
 @bot.message_handler(commands=['analyze'])
 def handle_analyze(message):
-    """أمر تشغيل التحليل اليومي الشامل وتحديث المقاييس فوراً في أي وقت"""
     bot.reply_to(message, "📊 جاري إجراء التحليل الشامل لجميع الأسهم وتحديث المقاييس التكيفية...")
     result = run_smart_scan(force=True)
     bot.send_message(message.chat.id, result)
 
 if __name__ == "__main__":
-    if os.environ.get("RUN_MODE") == "CRON":
+    # إذا تم تشغيله عبر Cron Job المجدول
+    if os.environ.get("RUN_MODE") == "CRON" or len(sys.argv) > 1:
         run_smart_scan(force=False)
+        sys.exit(0) # خروج فوري لعدم التضارب مع خدمة البوت
     else:
+        # إذا كان مستضاف كـ Background Service مستمرة للرد على أوامر التليجرام
         logging.info("🤖 البوت يعمل باستمرار ويستمع للأوامر (/scan, /analyze)...")
-        bot.infinity_polling()
-        
+        bot.infinity_polling(skip_pending=True)
+    
