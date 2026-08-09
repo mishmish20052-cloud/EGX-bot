@@ -149,7 +149,7 @@ def fetch_stock_data(symbol: str, retries: int = 2):
             return data
         except Exception as e:
             if "429" in str(e) and attempt < retries:
-                time.sleep(1.5)  # انتظار ثانية ونصف عند حظر الطلبات
+                time.sleep(1.5)
                 continue
             logging.warning(f"تعذر جلب بيانات السهم {symbol}: {e}")
             return None
@@ -204,7 +204,7 @@ def evaluate_stock(data: dict, current_time, history: dict):
     if data["is_green"]: score += 15
 
     prev_data = history.get(symbol, {})
-    if prev_data.get("score", 0) >= 55 and rvol >= 1.0:
+    if prev_data.get("max_score", 0) >= 55 and rvol >= 1.0:
         score += 15
 
     if score >= 65 and rvol >= min_rvol_trend:
@@ -300,78 +300,116 @@ def process_pending_signals(current_data):
     save_json(PENDING_FILE, updated_pending)
 
 # ===========================================================
-# 6. تدقيق النتائج بنهاية اليوم (Post-Market Audit Engine)
+# 6. تدقيق النتائج واختبار الفلاتر بنهاية اليوم (Advanced Post-Market Audit)
 # ===========================================================
 def run_post_market_audit(all_data, history):
     trades = load_json(TRADES_FILE, {})
-    if not trades:
-        send_telegram("🏁 **تقرير إغلاق الجلسة:** لم تفعل أي صفقات جديدة اليوم.")
-        return
-
+    
     wins = 0
     losses = 0
     in_progress = 0
-    audit_details = ""
+    executed_details = ""
     
-    for symbol, t in trades.items():
-        if symbol in all_data:
-            curr_close = all_data[symbol]["close"]
-            entry = t["entry"]
-            sl = t["sl"]
-            tp1 = t["tp1"]
-            tp2 = t["tp2"]
-            tp3 = t.get("tp3", round(entry * 1.10, 2))
-            mubasher_name = EGX33_SYMBOLS_MAP.get(symbol, symbol)
-            
-            if curr_close >= tp3:
-                status = "🎯🎯🎯 حقق الهدف الثالث (+10%)"
-                wins += 1
-            elif curr_close >= tp2:
-                status = "🎯🎯 حقق الهدف الثاني (+6%)"
-                wins += 1
-            elif curr_close >= tp1:
-                status = "🎯 حقق الهدف الأول (+3%)"
-                wins += 1
-            elif curr_close <= sl:
-                status = "🛑 ضرب وقف الخسارة (-2%)"
-                losses += 1
-            else:
-                status = "⏳ صفقة مستمرة/محايدة"
-                in_progress += 1
+    # 1. تدقيق التوصيات التي أُرسلت بالفعل
+    if trades:
+        for symbol, t in trades.items():
+            if symbol in all_data:
+                curr_close = all_data[symbol]["close"]
+                entry = t["entry"]
+                sl = t["sl"]
+                tp1 = t["tp1"]
+                tp2 = t["tp2"]
+                tp3 = t.get("tp3", round(entry * 1.10, 2))
+                mubasher_name = EGX33_SYMBOLS_MAP.get(symbol, symbol)
                 
-            audit_details += f"• `{mubasher_name}`: دخول {entry} | إغلاق {curr_close} ➔ {status}\n"
+                if curr_close >= tp3:
+                    status = "🎯🎯🎯 حقق الهدف الثالث (+10%)"
+                    wins += 1
+                elif curr_close >= tp2:
+                    status = "🎯🎯 حقق الهدف الثاني (+6%)"
+                    wins += 1
+                elif curr_close >= tp1:
+                    status = "🎯 حقق الهدف الأول (+3%)"
+                    wins += 1
+                elif curr_close <= sl:
+                    status = "🛑 ضرب وقف الخسارة (-2%)"
+                    losses += 1
+                else:
+                    status = "⏳ صفقة مستمرة/محايدة"
+                    in_progress += 1
+                    
+                executed_details += f"• `{mubasher_name}`: دخول {entry} | إغلاق {curr_close} ➔ {status}\n"
 
     total_closed = wins + losses
     win_rate = round((wins / total_closed * 100), 1) if total_closed > 0 else 0.0
 
+    # 2. تدقيق الفلاتر والفرص الكامنة (التي لم تُرسل فوراً)
+    filtered_protected = 0
+    filtered_missed = 0
+    candidates_details = ""
+
+    candidate_stocks = [
+        (sym, metrics) for sym, metrics in history.items()
+        if sym not in trades and metrics.get("max_score", 0) >= 60
+    ]
+    candidate_stocks.sort(key=lambda x: x[1].get("max_score", 0), reverse=True)
+
+    for sym, metrics in candidate_stocks[:5]:
+        mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
+        start_price = metrics.get("first_price", metrics.get("price", 0))
+        curr_close = all_data.get(sym, {}).get("close", metrics.get("price", 0))
+        
+        change_pct = round(((curr_close - start_price) / start_price) * 100, 2) if start_price > 0 else 0.0
+
+        if change_pct >= 1.5:
+            status_icon = "🚀 (فرصة صاعدة تم تفويتها)"
+            filtered_missed += 1
+        elif change_pct <= -0.5:
+            status_icon = "🛡️ (الفلتر حماك من هبوط)"
+            filtered_protected += 1
+        else:
+            status_icon = "↔️ (حركة محايدة)"
+
+        sign = "+" if change_pct > 0 else ""
+        candidates_details += (
+            f"• `{mb_name}` (تقييم {metrics.get('max_score', 0)}/100):\n"
+            f"  بداية {start_price} ➔ إغلاق {curr_close} ({sign}{change_pct}%) {status_icon}\n"
+        )
+
     green_count = sum(1 for d in all_data.values() if d["is_green"])
     avg_rvol = sum(d["rvol"] for d in all_data.values()) / len(all_data) if all_data else 1.0
 
-    report = (
-        f"🏁 **تقرير تدقيق الصفقات المكتملة ونسبة النجاح (Audit Digest)**\n\n"
-        f"📊 **مؤشر البورصة العامة اليوم:**\n"
+    # بناء نص التقرير للتليجرام
+    report = "🏁 **تقرير تدقيق الجلسة واختبار الفلاتر (End-of-Day Audit)**\n\n"
+    report += (
+        f"📊 **حالة البورصة العامة اليوم:**\n"
         f"├ أسهم صاعدة: {green_count}/{len(all_data)}\n"
         f"└ متوسط سيولة السوق: {round(avg_rvol, 2)}x\n\n"
-        f"📈 **نتائج التوصيات الصادرة:**\n"
-        f"├ 🎯 الصفقات الرابحة: {wins}\n"
-        f"├ 🛑 الصفقات الخاسرة: {losses}\n"
-        f"├ ⏳ صفقات مستمرة: {in_progress}\n"
-        f"└ 🏆 **نسبة النجاح (Win Rate): {win_rate}%**\n\n"
-        f"📝 **تفاصيل أداء صفقات اليوم:**\n{audit_details}\n"
-        f"🔝 **أفضل اقتراحات التجميع للغد:**\n"
     )
 
-    top_stocks = sorted(
-        [item for item in history.items() if item[1].get('score', 0) >= 50],
-        key=lambda x: x[1]['score'], reverse=True
-    )[:5]
-    
-    for idx, (sym, metrics) in enumerate(top_stocks, 1):
-        mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
-        report += f"{idx}. `{mb_name}` - تقييم: {metrics['score']}/100 | RVOL: {round(metrics.get('max_rvol',0), 2)}x\n"
+    if trades:
+        report += (
+            f"📈 **نتائج التوصيات المنفذة:**\n"
+            f"├ 🎯 صفقات رابحة: {wins}\n"
+            f"├ 🛑 صفقات خاسرة: {losses}\n"
+            f"├ ⏳ صفقات مستمرة: {in_progress}\n"
+            f"└ 🏆 **نسبة النجاح (Win Rate): {win_rate}%**\n\n"
+            f"📝 **تفاصيل أداء التوصيات:**\n{executed_details}\n"
+        )
+    else:
+        report += "ℹ️ **التوصيات المنفذة:** لم تُفعل أي صفقات على تليجرام اليوم.\n\n"
+
+    if candidates_details:
+        report += (
+            f"🔍 **تدقيق الفلاتر والفرص الكامنة (غير المُرسلة):**\n"
+            f"{candidates_details}\n"
+            f"💡 **حصيلة كفاءة الفلتر اليوم:**\n"
+            f"├ 🛡️ صفقات كاذبة تم تفاديها: {filtered_protected}\n"
+            f"└ 🚀 فرص صاعدة تم تفويتها: {filtered_missed}\n"
+        )
 
     send_telegram(report)
-    logging.info("📜 تم إرسال تقرير التدقيق النهائي بنجاح.")
+    logging.info("📜 تم إرسال تقرير التدقيق النهائي المعدل بنجاح.")
 
 # ===========================================================
 # 7. دالة الفحص والتحكم الزمني الذكي
@@ -382,23 +420,20 @@ def run_market_scan():
     hour = now_cairo.hour
     minute = now_cairo.minute
 
-    # تحديد نطاق عمل البوت من 10:00 صباحاً حتى 14:30 ظهراً
     start_market = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
     end_market = now_cairo.replace(hour=14, minute=30, second=0, microsecond=0)
 
-    # 1. الخروج الفوري خارج ساعات التداول المحددة
     if not (start_market <= now_cairo <= end_market):
         logging.info(f"⏳ [{current_time_str} مصر] خارج ساعات التداول. خروج فوري لتوفير الموارد.")
         sys.exit(0)
 
-    # جلب البيانات مع فاصل زمني لحماية البوت من حظر Rate Limit (HTTP 429)
     logging.info(f"🔍 بدء الفحص الذكي للأسهم [{current_time_str} مصر]...")
     all_data = {}
     for symbol in EGX33_SYMBOLS:
         data = fetch_stock_data(symbol)
         if data:
             all_data[symbol] = data
-        time.sleep(0.3)  # فاصل زمني 300 مللي ثانية بين كل طلب والآخر
+        time.sleep(0.3)
 
     if not all_data:
         logging.warning("⚠️ تعذر جلب بيانات الأسهم.")
@@ -408,13 +443,13 @@ def run_market_scan():
     pending_to_add = load_json(PENDING_FILE, {})
     today_results = history.copy()
 
-    # 2. تشغيل تقرير التدقيق النهائي فوراً عند إغلاق السوق (بين 14:15 و 14:30)
+    # حسم تقرير الإغلاق مباشرة بين 14:15 و 14:30
     if hour == 14 and minute >= 15:
         logging.info(f"🏁 [{current_time_str} مصر] وقت إغلاق السوق - تشغيل تقرير التدقيق النهائي (Post-Market Audit)...")
         run_post_market_audit(all_data, today_results)
         sys.exit(0)
 
-    # 3. التحقق من أوقات الفحص خلال الجلسة العادية
+    # التحقق من أوقات الفحص خلال الجلسة
     if hour == 10 and minute < 45:
         is_scan_time = True
     else:
@@ -424,20 +459,24 @@ def run_market_scan():
         logging.info(f"💤 [{current_time_str} مصر] فترة الهدوء.")
         sys.exit(0)
 
-    # معالجة الإشارات وتحليل الفرص
     process_pending_signals(all_data)
 
     for symbol, data in all_data.items():
         eval_res = evaluate_stock(data, now_cairo, history)
 
-        prev_max_rvol = today_results.get(symbol, {}).get("max_rvol", 0.0)
+        prev_metrics = today_results.get(symbol, {})
+        prev_max_rvol = prev_metrics.get("max_rvol", 0.0)
+        prev_max_score = prev_metrics.get("max_score", 0)
+        first_price = prev_metrics.get("first_price", data["close"])
+
         today_results[symbol] = {
-            "score": eval_res["score"],
+            "max_score": max(prev_max_score, eval_res["score"]),
+            "first_price": first_price,
             "price": data["close"],
             "rvol": data["rvol"],
             "max_rvol": max(prev_max_rvol, data["rvol"]),
             "rsi": data["rsi"],
-            "type": eval_res["type"]
+            "type": eval_res["type"] if eval_res["type"] != "None" else prev_metrics.get("type", "None")
         }
 
         if eval_res["type"] != "None":
@@ -462,4 +501,4 @@ def run_market_scan():
 
 if __name__ == "__main__":
     run_market_scan()
-            
+                
