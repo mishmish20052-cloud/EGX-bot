@@ -7,7 +7,6 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
-import telebot
 from tradingview_ta import TA_Handler, Interval
 
 # ===========================================================
@@ -22,8 +21,6 @@ CAIRO_TZ = ZoneInfo("Africa/Cairo")
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "5418506244")
-
-bot = telebot.TeleBot(BOT_TOKEN)
 
 DATA_FILE = "daily_history.json"
 PENDING_FILE = "pending_signals.json"
@@ -74,14 +71,16 @@ def save_json(file_path, data):
         logging.error(f"فشل حفظ {file_path}: {e}")
 
 def send_telegram_direct(message: str):
-    """إرسال مباشر عبر API التليجرام دون الحاجة للـ polling"""
+    """إرسال مباشر عبر API التليجرام وبدون حاجة للتنصت البطيء"""
     if not BOT_TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code != 200:
+            logging.error(f"خطأ تليجرام: {res.text}")
     except Exception as e:
-        logging.error(f"خطأ إرسال تليجرام: {e}")
+        logging.error(f"خطأ اتصال بتليجرام: {e}")
 
 def get_learned_config():
     default_config = {
@@ -146,7 +145,7 @@ def fetch_stock_data_safe(symbol, max_retries=3):
 
 def is_market_open():
     now_cairo = datetime.now(CAIRO_TZ)
-    if now_cairo.weekday() in [4, 5]:
+    if now_cairo.weekday() in [4, 5]: # عطلة الجمعة والسبت
         return False
     start_time = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
     end_time = now_cairo.replace(hour=14, minute=30, second=0, microsecond=0)
@@ -298,6 +297,7 @@ def run_smart_scan(force=False):
 
     save_json(DATA_FILE, history)
 
+    # تشغيل تقرير التحليل الشامل والتعلم عند نهاية الجلسة (14:15 - 14:30)
     if not force and now_cairo.hour == 14 and now_cairo.minute >= 15 and not audit_sent_today:
         run_post_market_analysis(all_data, history)
         audit_sent_today = True
@@ -311,30 +311,12 @@ def run_smart_scan(force=False):
     return summary
 
 # ===========================================================
-# 6. الأوامر التفاعلية وطريقة التشغيل الحازمة
+# 6. نقطة الانطلاق النظيفة (مخصصة للـ Cron Job)
 # ===========================================================
-@bot.message_handler(commands=['scan'])
-def handle_manual_scan(message):
-    if not is_market_open():
-        bot.reply_to(message, "⏳ السوق مغلق حالياً. أمر `/scan` يعمل فقط أثناء وقت التداول.", parse_mode="Markdown")
-        return
-    bot.reply_to(message, "🚀 جاري بدء الفحص المباشر...")
-    result = run_smart_scan(force=True)
-    bot.send_message(message.chat.id, result)
-
-@bot.message_handler(commands=['analyze'])
-def handle_analyze(message):
-    bot.reply_to(message, "📊 جاري إجراء التحليل الشامل لجميع الأسهم وتحديث المقاييس التكيفية...")
-    result = run_smart_scan(force=True)
-    bot.send_message(message.chat.id, result)
-
 if __name__ == "__main__":
-    # إذا تم تشغيله عبر Cron Job المجدول
-    if os.environ.get("RUN_MODE") == "CRON" or len(sys.argv) > 1:
-        run_smart_scan(force=False)
-        sys.exit(0) # خروج فوري لعدم التضارب مع خدمة البوت
-    else:
-        # إذا كان مستضاف كـ Background Service مستمرة للرد على أوامر التليجرام
-        logging.info("🤖 البوت يعمل باستمرار ويستمع للأوامر (/scan, /analyze)...")
-        bot.infinity_polling(skip_pending=True)
+    # عند استدعاء السكربت بواسطة Cron Job
+    # يتم إجراء الفحص الخفيف وإرسال التقارير ثم الخروج المباشر بسلام
+    run_smart_scan(force=False)
+    logging.info("🏁 انتهاء المهمة وخروج فوري لعدم حدوث تضارب.")
+    sys.exit(0)
     
