@@ -3,7 +3,6 @@ import sys
 import time
 import json
 import base64
-import random
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -11,7 +10,7 @@ import requests
 from tradingview_ta import TA_Handler, Interval
 
 # ===========================================================
-# 1. الإعدادات والربط مع GitHub
+# 1. الإعدادات والربط مع Telegram & GitHub
 # ===========================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -23,33 +22,49 @@ CAIRO_TZ = ZoneInfo("Africa/Cairo")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "5418506244")
 
-# إعدادات ذاكرة GitHub الدائمة
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "") # صيغته: username/repo-name
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "") # mishmish20052-cloud/EGX-bot
 DNA_FILE = "stocks_dna_memory.json"
 
+# قائمة الأسهم المراقبة شاملة
 EGX33_SYMBOLS_MAP = {
-    "ABUK": "ABUK.CA (أبو قير للأسمدة)", "MFPC": "MFPC.CA (موبكو)",
-    "SKPC": "SKPC.CA (سيدبك)", "AMOC": "AMOC.CA (أموك)",
-    "MBSC": "MBSC.CA (مصر بني سويف للأسمنت)", "SCEM": "SCEM.CA (سيناء للأسمنت)",
-    "TMGH": "TMGH.CA (طلعت مصطفى)", "OCDI": "OCDI.CA (سوديك)",
-    "MASR": "MASR.CA (مدينة مصر)", "EMFD": "EMFD.CA (إعمار مصر)",
-    "ORAS": "ORAS.CA (أوراسكوم للإنشاء)", "ORHD": "ORHD.CA (أوراسكوم التنمية)",
-    "HELI": "HELI.CA (مصر الجديدة للإسكان)", "CLHO": "CLHO.CA (كليوباترا)",
-    "ISPH": "ISPH.CA (ابن سينا فارما)", "RMDA": "RMDA.CA (العاشر من رمضان - رميدا)",
-    "PHAR": "PHAR.CA (إيبارشيو - فاركو)", "JUFO": "JUFO.CA (جهينة)",
-    "OLFI": "OLFI.CA (عبور لاند)", "SUGR": "SUGR.CA (الدلتا للسكر)",
-    "EFID": "EFID.CA (إدفيتا)", "EFIH": "EFIH.CA (إي فاينانس)",
-    "FWRY": "FWRY.CA (فوري)", "ETEL": "ETEL.CA (المصرية للاتصالات)",
-    "ALCN": "ALCN.CA (القناة للتوكيلات)", "CSAG": "CSAG.CA (القاهرة للزيوت)",
-    "ORWE": "ORWE.CA (النساجون الشرقيون)", "ARAB": "ARAB.CA (عربية حجيج)",
-    "CICH": "CICH.CA (سي آي كابيتال)", "EALR": "EALR.CA (مصر للألومنيوم)"
+    "ATQA": "ATQA.CA (مصر الوطنية للصلب - عتاقة)",
+    "ISPH": "ISPH.CA (ابن سينا فارما)",
+    "RMDA": "RMDA.CA (العاشر من رمضان - رميدا)",
+    "ABUK": "ABUK.CA (أبو قير للأسمدة)", 
+    "MFPC": "MFPC.CA (موبكو)",
+    "SKPC": "SKPC.CA (سيدبك)", 
+    "AMOC": "AMOC.CA (أموك)",
+    "MBSC": "MBSC.CA (مصر بني سويف للأسمنت)", 
+    "SCEM": "SCEM.CA (سيناء للأسمنت)",
+    "TMGH": "TMGH.CA (طلعت مصطفى)", 
+    "OCDI": "OCDI.CA (سوديك)",
+    "MASR": "MASR.CA (مدينة مصر)", 
+    "EMFD": "EMFD.CA (إعمار مصر)",
+    "ORAS": "ORAS.CA (أوراسكوم للإنشاء)", 
+    "ORHD": "ORHD.CA (أوراسكوم التنمية)",
+    "HELI": "HELI.CA (مصر الجديدة للإسكان)", 
+    "CLHO": "CLHO.CA (كليوباترا)",
+    "PHAR": "PHAR.CA (إيبارشيو - فاركو)", 
+    "JUFO": "JUFO.CA (جهينة)",
+    "OLFI": "OLFI.CA (عبور لاند)", 
+    "SUGR": "SUGR.CA (الدلتا للسكر)",
+    "EFID": "EFID.CA (إدفيتا)", 
+    "EFIH": "EFIH.CA (إي فاينانس)",
+    "FWRY": "FWRY.CA (فوري)", 
+    "ETEL": "ETEL.CA (المصرية للاتصالات)",
+    "ALCN": "ALCN.CA (القناة للتوكيلات)", 
+    "CSAG": "CSAG.CA (القاهرة للزيوت)",
+    "ORWE": "ORWE.CA (النساجون الشرقيون)", 
+    "ARAB": "ARAB.CA (عربية حجيج)",
+    "CICH": "CICH.CA (سي آي كابيتال)", 
+    "EALR": "EALR.CA (مصر للألومنيوم)"
 }
 
 STOCKS = list(EGX33_SYMBOLS_MAP.keys())
 
 # ===========================================================
-# 2. محرك الحفظ والاسترجاع الدائم عبر GitHub API
+# 2. إدارة الذاكرة الدائمة عبر GitHub API
 # ===========================================================
 def load_json_local(file_path, default=None):
     if default is None: default = {}
@@ -69,9 +84,7 @@ def save_json_local(file_path, data):
         logging.error(f"فشل حفظ {file_path} محلياً: {e}")
 
 def save_dna_to_github(data):
-    """حفظ دائم وملتزم (Commit) لملف الذاكرة مباشرة على GitHub"""
     if not GITHUB_TOKEN or not GITHUB_REPO:
-        logging.warning("⚠️ لم يتم ضبط GITHUB_TOKEN أو GITHUB_REPO. سيتم الحفظ محلياً فقط.")
         save_json_local(DNA_FILE, data)
         return
 
@@ -81,7 +94,6 @@ def save_dna_to_github(data):
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # 1. الحصول على الـ sha الخاص بالملف إن وجد للتحديث عليه
     sha = None
     try:
         res = requests.get(url, headers=headers, timeout=10)
@@ -90,34 +102,35 @@ def save_dna_to_github(data):
     except Exception as e:
         logging.error(f"خطأ قراءة sha من GitHub: {e}")
 
-    # 2. تجهيز البيانات وتشفيرها بـ Base64
     content_str = json.dumps(data, ensure_ascii=False, indent=2)
     content_encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
 
     payload = {
-        "message": "🧠 Auto-update Stock DNA Memory [Post-Market Learning]",
+        "message": "🧠 Auto-learned Autonomous Stock DNA Update",
         "content": content_encoded
     }
     if sha:
         payload["sha"] = sha
 
-    # 3. رفع الملف التحديثي لـ GitHub
     try:
         put_res = requests.put(url, headers=headers, json=payload, timeout=15)
         if put_res.status_code in [200, 201]:
-            logging.info("✅ تم حفظ وتحديث الذاكرة الدائمة في GitHub بنجاح!")
+            logging.info("✅ تم تحديث الذاكرة الدائمة تلقائياً في GitHub بنجاح!")
         else:
             logging.error(f"فشل الحفظ في GitHub: {put_res.text}")
     except Exception as e:
         logging.error(f"خطأ اتصال أثناء التحديث في GitHub: {e}")
 
 def get_stock_dna(symbol):
+    """
+    يقوم بجلب الذاكرة الخاصة بالسهم، وإن لم تكن موجودة يُنشئ له DNA افتراضي يتم تعديله آلياً لاحقاً
+    """
     dna_memory = load_json_local(DNA_FILE, {})
     default_dna = {
-        "min_rvol": 1.1,
-        "min_score": 65,
-        "rsi_min": 42.0,
-        "rsi_max": 70.0,
+        "min_rvol": 0.85,
+        "min_score": 55,
+        "rsi_min": 38.0,
+        "rsi_max": 76.0,
         "missed_trades": 0,
         "learned_sessions": 0
     }
@@ -133,7 +146,7 @@ def send_telegram_direct(message: str):
         logging.error(f"خطأ تليجرام: {e}")
 
 # ===========================================================
-# 3. جلب البيانات وتقييم الأسهم حسب بصمتها (Stock DNA)
+# 3. جلب البيانات وتقييم الأسهم
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
     for attempt in range(max_retries):
@@ -186,13 +199,16 @@ def evaluate_stock_with_dna(data):
     
     rsi, rvol, change_pct, close = data["rsi"], data["rvol"], data["change_pct"], data["close"]
     
+    # تجنب الشراء القريب جداً من القمة المرتفعة للجلسة
     if change_pct >= 8.5:
         return {"type": "None", "score": 0, "instant": False}
 
-    # اختراق قوي حسب سيولة السهم
-    if rvol >= (dna["min_rvol"] * 1.8) and change_pct >= 2.0 and (45.0 <= rsi <= 75.0):
+    # 1. التقاط ديناميكي تلقائي لأي اختراق صاعد دون شروط يدوية
+    if (change_pct >= 2.0 and rvol >= dna["min_rvol"] and (dna["rsi_min"] <= rsi <= dna["rsi_max"])) or \
+       (change_pct >= 1.5 and rvol >= (dna["min_rvol"] * 1.25)):
         return {"type": "Super Breakout 🚀", "score": 95, "instant": True}
 
+    # 2. تقييم الاتجاه العام بالنقاط
     score = 0
     if dna["rsi_min"] <= rsi <= dna["rsi_max"]: score += 30
     if close > data["ema25"]: score += 20
@@ -206,7 +222,7 @@ def evaluate_stock_with_dna(data):
     return {"type": "None", "score": score, "instant": False}
 
 # ===========================================================
-# 4. محرك التعلم الذاتي وحفظ التعديلات في GitHub
+# 4. محرك التعلم الذاتي والتكيّف المستمر
 # ===========================================================
 def run_deep_learning_analysis(all_data):
     dna_memory = load_json_local(DNA_FILE, {})
@@ -220,30 +236,29 @@ def run_deep_learning_analysis(all_data):
         rvol = data["rvol"]
         rsi = data["rsi"]
         
-        # 1. إذا صعد السهم بأكثر من 3% ولم يلتقطه البوت، يتم تخفيض شرط RVOL له
+        # إذا صعد السهم بـ 3% أو أكثر وكان شرط السيولة منع التنبيه، يتم خفض الشرط للسهم تلقائياً
         if change_pct >= 3.0 and rvol < dna["min_rvol"]:
             old_rvol = dna["min_rvol"]
-            dna["min_rvol"] = max(0.8, round(dna["min_rvol"] - 0.1, 2))
+            dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.1, 2))
             dna["missed_trades"] += 1
-            reports_log.append(f"• `{mb_name}`: صعد (+{change_pct}%) ➔ تخفيض شرط السيولة له من `{old_rvol}x` إلى `{dna['min_rvol']}x`.")
+            reports_log.append(f"• `{mb_name}`: حقق صعود (+{round(change_pct,2)}%) ➔ تم تخفيض شرط السيولة آلياً من `{old_rvol}x` إلى `{dna['min_rvol']}x`.")
 
-        # 2. تعديل حد RSI الأقصى إذا كان السهم يمتلك زخماً مرتفعاً للغاية
-        if change_pct >= 3.5 and rsi > dna["rsi_max"] and dna["rsi_max"] < 75.0:
-            dna["rsi_max"] = min(78.0, round(dna["rsi_max"] + 2.0, 1))
-            reports_log.append(f"• `{mb_name}`: توسيع نطاق RSI للسهم إلى `{dna['rsi_max']}` لتفادي تفويته.")
+        # إذا تجاوز السهم نطاق RSI المعتاد مع استمرار الصعود، يتم توسيع النطاق آلياً
+        if change_pct >= 3.5 and rsi > dna["rsi_max"] and dna["rsi_max"] < 82.0:
+            dna["rsi_max"] = min(82.0, round(dna["rsi_max"] + 2.0, 1))
+            reports_log.append(f"• `{mb_name}`: توسيع نطاق RSI المسموح آلياً إلى `{dna['rsi_max']}`.")
 
         dna["learned_sessions"] += 1
         dna_memory[sym] = dna
 
-    # حفظ محلي + رفع تلقائي لـ GitHub
+    # حفظ وتزامن التعديلات في ملف الـ DNA وفي GitHub
     save_json_local(DNA_FILE, dna_memory)
     save_dna_to_github(dna_memory)
 
-    # إرسال التقرير على تليجرام
     if reports_log:
-        report = "🧠 **تحديث الذاكرة الدائمة للأسهم (Stock DNA Update)**\n\n"
-        report += "تم حفظ المقاييس الجديدة لهذا اليوم مباشرة على GitHub:\n\n"
-        report += "\n".join(reports_log[:6])
+        report = "🧠 **تكيّف تلقائي للذاكرة (Autonomous Stock DNA Update)**\n\n"
+        report += "قام البوت برصد حركة الأسهم وتعديل معاييرها آلياً وحفظها في GitHub:\n\n"
+        report += "\n".join(reports_log[:8])
         send_telegram_direct(report)
 
 # ===========================================================
@@ -251,7 +266,7 @@ def run_deep_learning_analysis(all_data):
 # ===========================================================
 def run_pipeline():
     now_cairo = datetime.now(CAIRO_TZ)
-    logging.info(f"🔍 تشغيل الفحص والذاكرة [{now_cairo.strftime('%H:%M')} مصر]...")
+    logging.info(f"🔍 تشغيل الفحص الذكي الذاتي [{now_cairo.strftime('%H:%M')} مصر]...")
     
     all_data = {}
     for stock in STOCKS:
@@ -262,11 +277,18 @@ def run_pipeline():
             
             if eval_res["instant"]:
                 mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
-                msg = f"🚀 **إشارة اقتناص ذكية ({eval_res['type']})**\n\nالسهم: `{mb_name}`\nالسعر الحالي: {data['close']}\nالسيولة النسبيّة: {round(data['rvol'],2)}x\nRSI: {round(data['rsi'],1)}"
+                msg = (
+                    f"🚀 **إشارة اقتناص فوري ({eval_res['type']})**\n\n"
+                    f"السهم: `{mb_name}`\n"
+                    f"السعر الحالي: {data['close']}\n"
+                    f"نسبة التغير: +{round(data['change_pct'], 2)}%\n"
+                    f"السيولة النسبية: {round(data['rvol'], 2)}x\n"
+                    f"مؤشر RSI: {round(data['rsi'], 1)}"
+                )
                 send_telegram_direct(msg)
         time.sleep(0.3)
 
-    # تشغيل محرك التعلم والـ Commit بنهاية الجلسة (14:15 - 14:30)
+    # تشغيل التعلم والتحليل الذاتي عند الساعة 02:15 ظهراً وحفظ التحديثات تلقائياً
     if now_cairo.hour == 14 and now_cairo.minute >= 15:
         run_deep_learning_analysis(all_data)
 
