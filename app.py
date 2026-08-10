@@ -216,10 +216,8 @@ def run_startup_verification():
 # 4. جلب البيانات المتقدمة والتحليل متعدد الأطر (MTF Analysis)
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
-    """جلب بيانات السهم على الإطارين 15 دقيقة واليومي لتأكيد الاتجاه العام"""
     for attempt in range(max_retries):
         try:
-            # 1. إطار 15 دقيقة للتنفيذ اللحظي
             handler_15m = TA_Handler(
                 symbol=symbol,
                 screener="egypt",
@@ -229,7 +227,6 @@ def fetch_stock_data_safe(symbol, max_retries=3):
             analysis_15m = handler_15m.get_analysis()
             ind_15m = analysis_15m.indicators
 
-            # 2. الإطار اليومي لتأكيد الاتجاه العام (MTF)
             handler_1d = TA_Handler(
                 symbol=symbol,
                 screener="egypt",
@@ -245,12 +242,10 @@ def fetch_stock_data_safe(symbol, max_retries=3):
             rsi = ind_15m.get("RSI", 50)
             ema25 = ind_15m.get("EMA25", 0)
             ema50 = ind_15m.get("EMA50", 0)
-            
-            # حساب مؤشر ATR للتذبذب الذكي (أو تقديره الافتراضي)
+
             atr = ind_15m.get("ATR", close * 0.02)
             if not atr or atr <= 0: atr = close * 0.02
 
-            # اتجاه الإطار اليومي (Daily Trend)
             close_1d = ind_1d.get("close", close)
             ema50_1d = ind_1d.get("EMA50", close_1d)
             is_daily_bullish = close_1d >= ema50_1d
@@ -280,16 +275,11 @@ def fetch_stock_data_safe(symbol, max_retries=3):
     return None
 
 def calculate_atr_portfolio_plan(close_price, atr, rsi):
-    """إدارة مخاطر ذكية تعتمد على تذبذب السهم الحقيقي (ATR Volatility)"""
-    # وقف الخسارة = 1.5 * ATR أسفل سعر الدخول
     stop_loss = round(max(close_price * 0.93, close_price - (1.5 * atr)), 2)
-    
-    # الأهداف المحسوبة ديناميكياً
     t1 = round(close_price + (1.2 * atr), 2)
     t2 = round(close_price + (2.5 * atr), 2)
     t3 = round(close_price + (4.0 * atr), 2)
 
-    # حساب نسبة الحجم الذكي للمحفظة بناءً على تذبذب ATR بالنسبة للسعر
     volatility_ratio = (atr / close_price) * 100
     if volatility_ratio > 3.0 or rsi > 70:
         position_size = "7% - 9% (تذبذب عالٍ - إدارة مخاطر مشددة)"
@@ -311,25 +301,22 @@ def evaluate_stock_with_dna(data):
     sym = data["symbol"]
     dna = get_stock_dna(sym)
     now_cairo = datetime.now(CAIRO_TZ)
-    
-    # 1. فلتر الاتجاه العام: إلغاء الصفقات إذا كان الإطار اليومي هابطاً جداً
+
     if not data["is_daily_bullish"] and data["change_pct"] < 2.5:
         return {"type": "None", "score": 0, "instant": False}
 
-    # 2. ترقية شرط النقاط إذا كان السهم يمتلك Win Rate ضعيفاً تاريخياً
     min_score_required = dna["min_score"]
     if dna["total_trades"] >= 3 and dna["win_rate"] < 50.0:
-        min_score_required += 10  # رفع المعيار لتفادي الأسهم المخادعة
+        min_score_required += 10
 
     is_opening_session = (now_cairo.hour == 10 and now_cairo.minute <= 30)
     min_rvol_threshold = dna["min_rvol"] * 1.3 if is_opening_session else dna["min_rvol"]
 
     rsi, rvol, change_pct, close = data["rsi"], data["rvol"], data["change_pct"], data["close"]
-    
+
     if change_pct >= 8.5:
         return {"type": "None", "score": 0, "instant": False}
 
-    # اختراق قوي مؤكد بالاتجاه اليومي
     if (change_pct >= 2.0 and rvol >= min_rvol_threshold and (dna["rsi_min"] <= rsi <= dna["rsi_max"]) and data["is_daily_bullish"]):
         return {"type": "Super MTF Breakout 🚀", "score": 98, "instant": True}
 
@@ -337,7 +324,7 @@ def evaluate_stock_with_dna(data):
     if dna["rsi_min"] <= rsi <= dna["rsi_max"]: score += 25
     if close > data["ema25"]: score += 20
     if close > data["ema50"]: score += 20
-    if data["is_daily_bullish"]: score += 20  # وزن إضافي للاتجاه اليومي
+    if data["is_daily_bullish"]: score += 20
     if data["is_green"]: score += 15
 
     if score >= min_score_required and rvol >= min_rvol_threshold:
@@ -359,13 +346,11 @@ def track_active_trades(all_data):
         mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
         dna = dna_memory.get(stock, get_stock_dna(stock))
 
-        # تحقق الهدف الأول
         if not trade.get("t1_hit") and current_price >= trade["t1"]:
             trade["t1_hit"] = True
             trade["current_stop"] = trade["entry_price"]
             updated = True
-            
-            # تسجيل نجاح الصفقة في الذاكرة
+
             if not trade.get("recorded_win"):
                 dna["winning_trades"] += 1
                 dna["total_trades"] += 1
@@ -384,7 +369,6 @@ def track_active_trades(all_data):
             )
             send_telegram_direct(msg)
 
-        # تحقق الهدف الثاني
         elif trade.get("t1_hit") and not trade.get("t2_hit") and current_price >= trade["t2"]:
             trade["t2_hit"] = True
             trade["current_stop"] = trade["t1"]
@@ -397,7 +381,6 @@ def track_active_trades(all_data):
             )
             send_telegram_direct(msg)
 
-        # تحقق الهدف الثالث
         elif trade.get("t2_hit") and not trade.get("t3_hit") and current_price >= trade["t3"]:
             trade["t3_hit"] = True
             updated = True
@@ -409,7 +392,6 @@ def track_active_trades(all_data):
             )
             send_telegram_direct(msg)
 
-        # ضرب وقف الخسارة المطور
         elif current_price <= trade.get("current_stop", trade["stop_loss"]):
             if not trade.get("recorded_win"):
                 dna["total_trades"] += 1
@@ -439,14 +421,14 @@ def track_active_trades(all_data):
 def run_deep_learning_analysis(all_data):
     dna_memory = load_json_local(DNA_FILE, {})
     reports_log = []
-    
+
     for sym, data in all_data.items():
         mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
         dna = dna_memory.get(sym, get_stock_dna(sym))
-        
+
         change_pct = data["change_pct"]
         rvol = data["rvol"]
-        
+
         if change_pct >= 3.0 and rvol < dna["min_rvol"]:
             dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.08, 2))
             reports_log.append(f"• `{mb_name}`: تعديل شرط السيولة آلياً إلى `{dna['min_rvol']}x`.")
@@ -468,7 +450,7 @@ def run_deep_learning_analysis(all_data):
 def run_pipeline():
     now_cairo = datetime.now(CAIRO_TZ)
     logging.info(f"🔍 تشغيل الفحص والرد الذكي وإدارة الصفقات [{now_cairo.strftime('%H:%M')} مصر]...")
-    
+
     all_data = {}
     active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
 
@@ -477,12 +459,11 @@ def run_pipeline():
         if data:
             all_data[stock] = data
             eval_res = evaluate_stock_with_dna(data)
-            
-            # اقتناص صفقة جديدة
+
             if eval_res["instant"] and stock not in active_trades:
                 mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
                 plan = calculate_atr_portfolio_plan(data["close"], data["atr"], data["rsi"])
-                
+
                 active_trades[stock] = {
                     "entry_price": data["close"],
                     "stop_loss": plan["stop_loss"],
@@ -498,13 +479,32 @@ def run_pipeline():
                 save_json_local(ACTIVE_TRADES_FILE, active_trades)
                 save_file_to_github(ACTIVE_TRADES_FILE, active_trades, f"➕ Add active trade: {stock}")
 
+                daily_status = "مؤكد إيجابي 🟢" if data['is_daily_bullish'] else "تذبذب/محايد 🟡"
+
                 msg = (
                     f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n\n"
                     f"📌 **السهم:** `{mb_name}`\n"
                     f"💵 **سعر الدخول:** {data['close']} ج.م (+{round(data['change_pct'], 2)}%)\n"
                     f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n"
-                    f"🌐 **الاتجاه اليومي (1D):** {'مؤكد إيجابي 🟢' if data['is_daily_bullish'] else 'تذبذب/محايد 🟡'}\n\n"
+                    f"🌐 **الاتجاه اليومي (1D):** {daily_status}\n\n"
                     f"🛡️ **خطة إدارة المخاطر والمحفظة (ATR Dynamic):**\n"
                     f"• **مؤشر التذبذب (ATR):** `{plan['atr']} ج.م`\n"
                     f"• **وقف الخسارة المطور:** `{plan['stop_loss']} ج.م`\n"
-                    f"• **الهدف 1:** `{plan['t1']} ج.م` ➔ 
+                    f"• **الهدف 1:** `{plan['t1']} ج.م` (بيع 40% وارفع الستوب لسعر الدخول)\n"
+                    f"• **الهدف 2:** `{plan['t2']} ج.م` (بيع 30% وارفع الستوب للهدف 1)\n"
+                    f"• **الهدف 3:** `{plan['t3']} ج.م` (تتبع الأرباح للمتبقي)\n\n"
+                    f"💡 **حجم الصفقة المقترح:** {plan['position_size']}"
+                )
+                send_telegram_direct(msg)
+        time.sleep(0.4)
+
+    track_active_trades(all_data)
+
+    if now_cairo.hour == 14 and now_cairo.minute >= 15:
+        run_deep_learning_analysis(all_data)
+
+if __name__ == "__main__":
+    run_startup_verification()
+    run_pipeline()
+    sys.exit(0)
+    
