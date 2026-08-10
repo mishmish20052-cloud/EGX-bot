@@ -64,7 +64,7 @@ EGX33_SYMBOLS_MAP = {
 STOCKS = list(EGX33_SYMBOLS_MAP.keys())
 
 # ===========================================================
-# 2. إدارة الذاكرة الدائمة والصفقات المفتوحة عبر GitHub API
+# 2. إدارة الذاكرة والتحديث في GitHub
 # ===========================================================
 def load_json_local(file_path, default=None):
     if default is None: default = {}
@@ -128,7 +128,9 @@ def get_stock_dna(symbol):
         "min_score": 55,
         "rsi_min": 38.0,
         "rsi_max": 76.0,
-        "missed_trades": 0,
+        "total_trades": 0,
+        "winning_trades": 0,
+        "win_rate": 100.0,
         "learned_sessions": 0
     }
     return dna_memory.get(symbol, default_dna)
@@ -143,19 +145,14 @@ def send_telegram_direct(message: str):
         logging.error(f"خطأ تليجرام: {e}")
 
 # ===========================================================
-# 3. دالة فحص الجاهزية والربط عند الإقلاع (Startup Verification)
+# 3. دالة فحص الجاهزية عند الإقلاع (Startup Verification)
 # ===========================================================
 def run_startup_verification():
-    """فحص الصلاحيات والربط مع GitHub وتليجرام عند بدء التشغيل"""
     now_cairo = datetime.now(CAIRO_TZ).strftime('%Y-%m-%d %H:%M:%S')
     logging.info("⚙️ بدء فحص جاهزية النظام والربط...")
 
     if not GITHUB_TOKEN or not GITHUB_REPO:
-        msg = (
-            "⚠️ *تنبيه بدء التشغيل:*\n"
-            "متغيرات البيئة لـ GitHub (`GITHUB_TOKEN` / `GITHUB_REPO`) غير مكتملة.\n"
-            "سيعمل البوت بالوضع المحلي فقط."
-        )
+        msg = "⚠️ *تنبيه بدء التشغيل:*\nمتغيرات GitHub غير مكتملة."
         logging.warning(msg)
         send_telegram_direct(msg)
         return False
@@ -167,7 +164,6 @@ def run_startup_verification():
     }
 
     try:
-        # 1. اختبار قراءة الملف من GitHub
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code != 200:
             msg = f"❌ *تنبيه خطأ الربط:*\nفشل الوصول إلى `{DNA_FILE}` على GitHub.\nرمز الحالة: `{res.status_code}`"
@@ -178,14 +174,12 @@ def run_startup_verification():
         file_info = res.json()
         sha = file_info.get("sha")
 
-        # 2. جلب محتوى الملف الحقيقي حتى لا نفقده
         current_data = load_json_local(DNA_FILE, {})
         content_str = json.dumps(current_data, ensure_ascii=False, indent=2)
         encoded_content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
 
-        # 3. اختبار التحديث والكتابة عبر الـ API
         test_payload = {
-            "message": "system: startup connection & write permission check",
+            "message": "system: v2 startup check",
             "content": encoded_content,
             "sha": sha
         }
@@ -194,23 +188,20 @@ def run_startup_verification():
 
         if put_res.status_code in [200, 201]:
             msg = (
-                "✅ *تقرير جاهزية النظام والربط:*\n\n"
+                "✅ *تقرير جاهزية النظام والمحرك المطور (V2):*\n\n"
                 f"🕒 **توقيت الفحص:** `{now_cairo}`\n"
                 f"📦 **المستودع:** `{GITHUB_REPO}`\n"
                 "• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n"
-                "• **صلاحيات الكتابة والتحديث:** *مفعلة وتعمل بنجاح*\n"
+                "• **تحليل الأطر التراكمية (MTF):** *مفعل (1D + 15M)*\n"
+                "• **إدارة المخاطر الحركية (ATR):** *مفعلة*\n"
                 "• **إرسال التليجرام:** *متصل ومعتمد*\n\n"
-                "🚀 *البوت جاهز تماماً لبدء فحص السوق وجلسة التداول!*"
+                "🚀 *البوت الذكي جاهز تماماً باقتناصات متعددة الأطر!*"
             )
-            logging.info("✅ تم اختبار صلاحيات الكتابة والربط بنجاح!")
+            logging.info("✅ تم اختبار المحرك المطور بنجاح!")
             send_telegram_direct(msg)
             return True
         else:
-            msg = (
-                f"❌ *خطأ في صلاحيات الكتابة على GitHub:*\n"
-                f"رمز الاستجابة: `{put_res.status_code}`\n"
-                "يرجى التأكد من صلاحية الـ PAT (Write / Repo Access)."
-            )
+            msg = f"❌ *خطأ في صلاحيات الكتابة:* `{put_res.status_code}`"
             logging.error(msg)
             send_telegram_direct(msg)
             return False
@@ -222,31 +213,50 @@ def run_startup_verification():
         return False
 
 # ===========================================================
-# 4. جلب البيانات وحسابات أهداف المحفظة
+# 4. جلب البيانات المتقدمة والتحليل متعدد الأطر (MTF Analysis)
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
+    """جلب بيانات السهم على الإطارين 15 دقيقة واليومي لتأكيد الاتجاه العام"""
     for attempt in range(max_retries):
         try:
-            handler = TA_Handler(
+            # 1. إطار 15 دقيقة للتنفيذ اللحظي
+            handler_15m = TA_Handler(
                 symbol=symbol,
                 screener="egypt",
                 exchange="EGX",
                 interval=Interval.INTERVAL_15_MINUTES
             )
-            analysis = handler.get_analysis()
-            ind = analysis.indicators
+            analysis_15m = handler_15m.get_analysis()
+            ind_15m = analysis_15m.indicators
 
-            close = ind.get("close", 0)
-            open_p = ind.get("open", 0)
-            volume = ind.get("volume", 0)
-            rsi = ind.get("RSI", 50)
-            ema25 = ind.get("EMA25", 0)
-            ema50 = ind.get("EMA50", 0)
-            macd = ind.get("MACD.macd", 0)
-            macd_signal = ind.get("MACD.signal", 0)
+            # 2. الإطار اليومي لتأكيد الاتجاه العام (MTF)
+            handler_1d = TA_Handler(
+                symbol=symbol,
+                screener="egypt",
+                exchange="EGX",
+                interval=Interval.INTERVAL_1_DAY
+            )
+            analysis_1d = handler_1d.get_analysis()
+            ind_1d = analysis_1d.indicators
+
+            close = ind_15m.get("close", 0)
+            open_p = ind_15m.get("open", 0)
+            volume = ind_15m.get("volume", 0)
+            rsi = ind_15m.get("RSI", 50)
+            ema25 = ind_15m.get("EMA25", 0)
+            ema50 = ind_15m.get("EMA50", 0)
+            
+            # حساب مؤشر ATR للتذبذب الذكي (أو تقديره الافتراضي)
+            atr = ind_15m.get("ATR", close * 0.02)
+            if not atr or atr <= 0: atr = close * 0.02
+
+            # اتجاه الإطار اليومي (Daily Trend)
+            close_1d = ind_1d.get("close", close)
+            ema50_1d = ind_1d.get("EMA50", close_1d)
+            is_daily_bullish = close_1d >= ema50_1d
 
             change_pct = ((close - open_p) / open_p * 100) if open_p > 0 else 0
-            volume_sma20 = ind.get("volume.SMA20", volume)
+            volume_sma20 = ind_15m.get("volume.SMA20", volume)
             rvol = (volume / volume_sma20) if (volume_sma20 and volume_sma20 > 0) else 1.0
 
             return {
@@ -258,8 +268,8 @@ def fetch_stock_data_safe(symbol, max_retries=3):
                 "rvol": rvol,
                 "ema25": ema25,
                 "ema50": ema50,
-                "macd": macd,
-                "macd_signal": macd_signal,
+                "atr": atr,
+                "is_daily_bullish": is_daily_bullish,
                 "is_green": close > open_p
             }
         except Exception as e:
@@ -269,25 +279,32 @@ def fetch_stock_data_safe(symbol, max_retries=3):
                 break
     return None
 
-def calculate_portfolio_plan(close_price, rsi):
-    # حساب أهداف الصفقة
-    stop_loss = round(close_price * 0.975, 2)  # -2.5%
-    t1 = round(close_price * 1.025, 2)        # +2.5%
-    t2 = round(close_price * 1.050, 2)        # +5.0%
-    t3 = round(close_price * 1.085, 2)        # +8.5%
+def calculate_atr_portfolio_plan(close_price, atr, rsi):
+    """إدارة مخاطر ذكية تعتمد على تذبذب السهم الحقيقي (ATR Volatility)"""
+    # وقف الخسارة = 1.5 * ATR أسفل سعر الدخول
+    stop_loss = round(max(close_price * 0.93, close_price - (1.5 * atr)), 2)
+    
+    # الأهداف المحسوبة ديناميكياً
+    t1 = round(close_price + (1.2 * atr), 2)
+    t2 = round(close_price + (2.5 * atr), 2)
+    t3 = round(close_price + (4.0 * atr), 2)
 
-    # حساب نسبة تخصيص رأس المال بناءً على التذبذب
-    if rsi > 70 or rsi < 40:
-        position_size = "8% - 10% (مخاطرة/تذبذب عالٍ)"
+    # حساب نسبة الحجم الذكي للمحفظة بناءً على تذبذب ATR بالنسبة للسعر
+    volatility_ratio = (atr / close_price) * 100
+    if volatility_ratio > 3.0 or rsi > 70:
+        position_size = "7% - 9% (تذبذب عالٍ - إدارة مخاطر مشددة)"
+    elif volatility_ratio < 1.5:
+        position_size = "12% - 15% (سهم مستقر - حجم قياسي)"
     else:
-        position_size = "12% - 15% (مخاطرة متوازنة)"
+        position_size = "10% - 12% (تذبذب متوازن)"
 
     return {
         "stop_loss": stop_loss,
         "t1": t1,
         "t2": t2,
         "t3": t3,
-        "position_size": position_size
+        "position_size": position_size,
+        "atr": round(atr, 2)
     }
 
 def evaluate_stock_with_dna(data):
@@ -295,7 +312,15 @@ def evaluate_stock_with_dna(data):
     dna = get_stock_dna(sym)
     now_cairo = datetime.now(CAIRO_TZ)
     
-    # فلتر توقيت افتتاح السوق المصري
+    # 1. فلتر الاتجاه العام: إلغاء الصفقات إذا كان الإطار اليومي هابطاً جداً
+    if not data["is_daily_bullish"] and data["change_pct"] < 2.5:
+        return {"type": "None", "score": 0, "instant": False}
+
+    # 2. ترقية شرط النقاط إذا كان السهم يمتلك Win Rate ضعيفاً تاريخياً
+    min_score_required = dna["min_score"]
+    if dna["total_trades"] >= 3 and dna["win_rate"] < 50.0:
+        min_score_required += 10  # رفع المعيار لتفادي الأسهم المخادعة
+
     is_opening_session = (now_cairo.hour == 10 and now_cairo.minute <= 30)
     min_rvol_threshold = dna["min_rvol"] * 1.3 if is_opening_session else dna["min_rvol"]
 
@@ -304,61 +329,71 @@ def evaluate_stock_with_dna(data):
     if change_pct >= 8.5:
         return {"type": "None", "score": 0, "instant": False}
 
-    if (change_pct >= 2.0 and rvol >= min_rvol_threshold and (dna["rsi_min"] <= rsi <= dna["rsi_max"])) or \
-       (change_pct >= 1.5 and rvol >= (min_rvol_threshold * 1.25)):
-        return {"type": "Super Breakout 🚀", "score": 95, "instant": True}
+    # اختراق قوي مؤكد بالاتجاه اليومي
+    if (change_pct >= 2.0 and rvol >= min_rvol_threshold and (dna["rsi_min"] <= rsi <= dna["rsi_max"]) and data["is_daily_bullish"]):
+        return {"type": "Super MTF Breakout 🚀", "score": 98, "instant": True}
 
     score = 0
-    if dna["rsi_min"] <= rsi <= dna["rsi_max"]: score += 30
+    if dna["rsi_min"] <= rsi <= dna["rsi_max"]: score += 25
     if close > data["ema25"]: score += 20
     if close > data["ema50"]: score += 20
-    if data["macd"] > data["macd_signal"]: score += 15
+    if data["is_daily_bullish"]: score += 20  # وزن إضافي للاتجاه اليومي
     if data["is_green"]: score += 15
 
-    if score >= dna["min_score"] and rvol >= min_rvol_threshold:
+    if score >= min_score_required and rvol >= min_rvol_threshold:
         return {"type": "Regular Trend 📈", "score": score, "instant": False}
 
     return {"type": "None", "score": score, "instant": False}
 
 # ===========================================================
-# 5. محرك متابعة وتحديث الصفقات المفتوحة (Active Trade Tracker)
+# 5. محرك متابعة وتحديث الصفقات المفتوحة مع تحديث الـ Win-Rate
 # ===========================================================
 def track_active_trades(all_data):
     active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
+    dna_memory = load_json_local(DNA_FILE, {})
     updated = False
 
     for stock, trade in list(active_trades.items()):
         if stock not in all_data: continue
         current_price = all_data[stock]["close"]
         mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
+        dna = dna_memory.get(stock, get_stock_dna(stock))
 
         # تحقق الهدف الأول
         if not trade.get("t1_hit") and current_price >= trade["t1"]:
             trade["t1_hit"] = True
-            trade["current_stop"] = trade["entry_price"]  # نقل وقف الخسارة لسعر الدخول
+            trade["current_stop"] = trade["entry_price"]
             updated = True
+            
+            # تسجيل نجاح الصفقة في الذاكرة
+            if not trade.get("recorded_win"):
+                dna["winning_trades"] += 1
+                dna["total_trades"] += 1
+                dna["win_rate"] = round((dna["winning_trades"] / dna["total_trades"]) * 100, 1)
+                dna_memory[stock] = dna
+                trade["recorded_win"] = True
+
             msg = (
-                f"🎯 **تحديث هدف [الهدف الأول تحقق]**\n\n"
+                f"🎯 **تحديث هدف [الهدف الأول تحقق - ATR Plan]**\n\n"
                 f"📌 **السهم:** `{mb_name}`\n"
-                f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
+                f"💵 **السعر الحالي:** {current_price} ج.م\n"
+                f"📊 **نسبة نجاح السهم التاريخية:** `{dna['win_rate']}%`\n\n"
                 f"✅ **الجراء المطلوبة:**\n"
-                f"1️⃣ بيع **40%** من الكمية لحجز أرباح المرحلة الأولى.\n"
-                f"2️⃣ رفع **وقف الخسارة** للكمية المتبقية إلى سعر الدخول: `{trade['entry_price']} ج.م`."
+                f"1️⃣ بيع **40%** لتأمين الأرباح.\n"
+                f"2️⃣ رفع **وقف الخسارة** للمتبقي إلى سعر الدخول: `{trade['entry_price']} ج.م`."
             )
             send_telegram_direct(msg)
 
         # تحقق الهدف الثاني
         elif trade.get("t1_hit") and not trade.get("t2_hit") and current_price >= trade["t2"]:
             trade["t2_hit"] = True
-            trade["current_stop"] = trade["t1"]  # نقل وقف الخسارة للهدف الأول
+            trade["current_stop"] = trade["t1"]
             updated = True
             msg = (
                 f"🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n"
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
-                f"✅ **الجراء المطلوبة:**\n"
-                f"1️⃣ بيع **30%** إضافية من الكمية.\n"
-                f"2️⃣ رفع **وقف الخسارة** للمتبقي إلى مستوى الهدف الأول: `{trade['t1']} ج.م`."
+                f"✅ **الجراء المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `{trade['t1']} ج.م`."
             )
             send_telegram_direct(msg)
 
@@ -367,22 +402,26 @@ def track_active_trades(all_data):
             trade["t3_hit"] = True
             updated = True
             msg = (
-                f"🔥 **تحديث هدف [الهدف الثالث الأقصى تحقق]**\n\n"
+                f"🔥 **تحقيق أقصى هدف متوقع [الهدف الثالث]**\n\n"
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
-                f"✅ **الجراء المطلوبة:**\n"
-                f"• بيع الكمية المتبقية بالكامل أو تتبع المتوسط الأسي `EMA25` لتحقيق أقصى ربح."
+                f"✅ **الجراء:** بيع الكمية المتبقية بالكامل."
             )
             send_telegram_direct(msg)
 
         # ضرب وقف الخسارة المطور
         elif current_price <= trade.get("current_stop", trade["stop_loss"]):
+            if not trade.get("recorded_win"):
+                dna["total_trades"] += 1
+                dna["win_rate"] = round((dna["winning_trades"] / dna["total_trades"]) * 100, 1)
+                dna_memory[stock] = dna
+
             msg = (
-                f"🛑 **تنبيه وقف الخسارة / الخروج التأميني**\n\n"
+                f"🛑 **تنبيه وقف الخسارة التأميني (ATR Stop)**\n\n"
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"📉 **سعر الكسر:** {current_price} ج.م\n"
                 f"🛡️ **مستوى الستوب المفعل:** {trade.get('current_stop', trade['stop_loss'])} ج.م\n\n"
-                f"⚠️ **الجراء:** إغلاق باقي مراكز السهم وتأمين الأرباح/المحفظة."
+                f"⚠️ **الجراء:** إغلاق المراكز المتبقية وتأمين المحفظة."
             )
             send_telegram_direct(msg)
             del active_trades[stock]
@@ -391,6 +430,8 @@ def track_active_trades(all_data):
     if updated:
         save_json_local(ACTIVE_TRADES_FILE, active_trades)
         save_file_to_github(ACTIVE_TRADES_FILE, active_trades, "🔄 Auto-update active trades tracker")
+        save_json_local(DNA_FILE, dna_memory)
+        save_file_to_github(DNA_FILE, dna_memory, "🧠 Auto-update Win Rates in Stock DNA")
 
 # ===========================================================
 # 6. محرك التعلم الذاتي عند الإغلاق
@@ -405,16 +446,10 @@ def run_deep_learning_analysis(all_data):
         
         change_pct = data["change_pct"]
         rvol = data["rvol"]
-        rsi = data["rsi"]
         
         if change_pct >= 3.0 and rvol < dna["min_rvol"]:
-            dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.1, 2))
-            dna["missed_trades"] += 1
-            reports_log.append(f"• `{mb_name}`: صعد (+{round(change_pct,2)}%) ➔ تعديل شرط السيولة آلياً إلى `{dna['min_rvol']}x`.")
-
-        if change_pct >= 3.5 and rsi > dna["rsi_max"] and dna["rsi_max"] < 82.0:
-            dna["rsi_max"] = min(82.0, round(dna["rsi_max"] + 2.0, 1))
-            reports_log.append(f"• `{mb_name}`: توسيع نطاق RSI آلياً إلى `{dna['rsi_max']}`.")
+            dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.08, 2))
+            reports_log.append(f"• `{mb_name}`: تعديل شرط السيولة آلياً إلى `{dna['min_rvol']}x`.")
 
         dna["learned_sessions"] += 1
         dna_memory[sym] = dna
@@ -423,7 +458,7 @@ def run_deep_learning_analysis(all_data):
     save_file_to_github(DNA_FILE, dna_memory, "🧠 Auto-update Stock DNA")
 
     if reports_log:
-        report = "🧠 **تكيّف الذاكرة الذاتية (Autonomous Stock DNA Update)**\n\n"
+        report = "🧠 **تكيّف الذاكرة الذاتية (V2 Adaptive Stock DNA)**\n\n"
         report += "\n".join(reports_log[:8])
         send_telegram_direct(report)
 
@@ -446,9 +481,8 @@ def run_pipeline():
             # اقتناص صفقة جديدة
             if eval_res["instant"] and stock not in active_trades:
                 mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
-                plan = calculate_portfolio_plan(data["close"], data["rsi"])
+                plan = calculate_atr_portfolio_plan(data["close"], data["atr"], data["rsi"])
                 
-                # حفظ الصفقة في الصفقات النشطة
                 active_trades[stock] = {
                     "entry_price": data["close"],
                     "stop_loss": plan["stop_loss"],
@@ -458,39 +492,19 @@ def run_pipeline():
                     "t3": plan["t3"],
                     "t1_hit": False,
                     "t2_hit": False,
-                    "t3_hit": False
+                    "t3_hit": False,
+                    "recorded_win": False
                 }
                 save_json_local(ACTIVE_TRADES_FILE, active_trades)
                 save_file_to_github(ACTIVE_TRADES_FILE, active_trades, f"➕ Add active trade: {stock}")
 
                 msg = (
-                    f"🚀 **إشارة اقتناص فوري ({eval_res['type']})**\n\n"
+                    f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n\n"
                     f"📌 **السهم:** `{mb_name}`\n"
                     f"💵 **سعر الدخول:** {data['close']} ج.م (+{round(data['change_pct'], 2)}%)\n"
-                    f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n\n"
-                    f"🛡️ **خطة إدارة المحفظة والصفقة:**\n"
-                    f"• **وقف الخسارة المبدئي:** `{plan['stop_loss']} ج.م` (-2.5%)\n"
-                    f"• **الهدف 1:** `{plan['t1']} ج.م` (+2.5%) ➔ *بيع 40% وارفع الستوب لسعر الدخول*\n"
-                    f"• **الهدف 2:** `{plan['t2']} ج.م` (+5.0%) ➔ *بيع 30% وارفع الستوب للهدف 1*\n"
-                    f"• **الهدف 3:** `{plan['t3']} ج.م` (+8.5%) ➔ *بيع المتبقي وتتبع الأرباح*\n\n"
-                    f"💡 **حجم الصفقة المقترح:** {plan['position_size']}"
-                )
-                send_telegram_direct(msg)
-        time.sleep(0.3)
-
-    # متابعة الصفقات النشطة السابقة
-    track_active_trades(all_data)
-
-    # تشغيل محرك التعلم بعد الإغلاق
-    if now_cairo.hour == 14 and now_cairo.minute >= 15:
-        run_deep_learning_analysis(all_data)
-
-if __name__ == "__main__":
-    # 1. تنفيذ فحص الجاهزية والربط أولاً وإرسال التقرير للتليجرام
-    run_startup_verification()
-
-    # 2. تشغيل دورة الفحص الأساسية
-    run_pipeline()
-
-    sys.exit(0)
-    
+                    f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n"
+                    f"🌐 **الاتجاه اليومي (1D):** {'مؤكد إيجابي 🟢' if data['is_daily_bullish'] else 'تذبذب/محايد 🟡'}\n\n"
+                    f"🛡️ **خطة إدارة المخاطر والمحفظة (ATR Dynamic):**\n"
+                    f"• **مؤشر التذبذب (ATR):** `{plan['atr']} ج.م`\n"
+                    f"• **وقف الخسارة المطور:** `{plan['stop_loss']} ج.م`\n"
+                    f"• **الهدف 1:** `{plan['t1']} ج.م` ➔ 
