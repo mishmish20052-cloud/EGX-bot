@@ -23,11 +23,12 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcs
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "5418506244")
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "") # mishmish20052-cloud/EGX-bot
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 DNA_FILE = "stocks_dna_memory.json"
+ACTIVE_TRADES_FILE = "active_trades.json"
 
-# قائمة الأسهم المراقبة شاملة
 EGX33_SYMBOLS_MAP = {
+    "EALR": "EALR.CA (مصر للألومنيوم)",
     "ATQA": "ATQA.CA (مصر الوطنية للصلب - عتاقة)",
     "ISPH": "ISPH.CA (ابن سينا فارما)",
     "RMDA": "RMDA.CA (العاشر من رمضان - رميدا)",
@@ -57,14 +58,13 @@ EGX33_SYMBOLS_MAP = {
     "CSAG": "CSAG.CA (القاهرة للزيوت)",
     "ORWE": "ORWE.CA (النساجون الشرقيون)", 
     "ARAB": "ARAB.CA (عربية حجيج)",
-    "CICH": "CICH.CA (سي آي كابيتال)", 
-    "EALR": "EALR.CA (مصر للألومنيوم)"
+    "CICH": "CICH.CA (سي آي كابيتال)"
 }
 
 STOCKS = list(EGX33_SYMBOLS_MAP.keys())
 
 # ===========================================================
-# 2. إدارة الذاكرة الدائمة عبر GitHub API
+# 2. إدارة الذاكرة الدائمة والصفقات المفتوحة عبر GitHub API
 # ===========================================================
 def load_json_local(file_path, default=None):
     if default is None: default = {}
@@ -83,12 +83,12 @@ def save_json_local(file_path, data):
     except Exception as e:
         logging.error(f"فشل حفظ {file_path} محلياً: {e}")
 
-def save_dna_to_github(data):
+def save_file_to_github(file_name, data, commit_msg):
     if not GITHUB_TOKEN or not GITHUB_REPO:
-        save_json_local(DNA_FILE, data)
+        save_json_local(file_name, data)
         return
 
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DNA_FILE}"
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{file_name}"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
@@ -100,13 +100,13 @@ def save_dna_to_github(data):
         if res.status_code == 200:
             sha = res.json().get("sha")
     except Exception as e:
-        logging.error(f"خطأ قراءة sha من GitHub: {e}")
+        logging.error(f"خطأ قراءة sha لـ {file_name} من GitHub: {e}")
 
     content_str = json.dumps(data, ensure_ascii=False, indent=2)
     content_encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
 
     payload = {
-        "message": "🧠 Auto-learned Autonomous Stock DNA Update",
+        "message": commit_msg,
         "content": content_encoded
     }
     if sha:
@@ -115,16 +115,13 @@ def save_dna_to_github(data):
     try:
         put_res = requests.put(url, headers=headers, json=payload, timeout=15)
         if put_res.status_code in [200, 201]:
-            logging.info("✅ تم تحديث الذاكرة الدائمة تلقائياً في GitHub بنجاح!")
+            logging.info(f"✅ تم تحديث {file_name} في GitHub بنجاح!")
         else:
-            logging.error(f"فشل الحفظ في GitHub: {put_res.text}")
+            logging.error(f"فشل الحفظ في GitHub ({file_name}): {put_res.text}")
     except Exception as e:
-        logging.error(f"خطأ اتصال أثناء التحديث في GitHub: {e}")
+        logging.error(f"خطأ اتصال أثناء التحديث في GitHub ({file_name}): {e}")
 
 def get_stock_dna(symbol):
-    """
-    يقوم بجلب الذاكرة الخاصة بالسهم، وإن لم تكن موجودة يُنشئ له DNA افتراضي يتم تعديله آلياً لاحقاً
-    """
     dna_memory = load_json_local(DNA_FILE, {})
     default_dna = {
         "min_rvol": 0.85,
@@ -146,7 +143,7 @@ def send_telegram_direct(message: str):
         logging.error(f"خطأ تليجرام: {e}")
 
 # ===========================================================
-# 3. جلب البيانات وتقييم الأسهم
+# 3. جلب البيانات وحسابات أهداف المحفظة
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
     for attempt in range(max_retries):
@@ -193,22 +190,45 @@ def fetch_stock_data_safe(symbol, max_retries=3):
                 break
     return None
 
+def calculate_portfolio_plan(close_price, rsi):
+    # حساب أهداف الصفقة
+    stop_loss = round(close_price * 0.975, 2)  # -2.5%
+    t1 = round(close_price * 1.025, 2)        # +2.5%
+    t2 = round(close_price * 1.050, 2)        # +5.0%
+    t3 = round(close_price * 1.085, 2)        # +8.5%
+
+    # حساب نسبة تخصيص رأس المال بناءً على التذبذب
+    if rsi > 70 or rsi < 40:
+        position_size = "8% - 10% (مخاطرة/تذبذب عالٍ)"
+    else:
+        position_size = "12% - 15% (مخاطرة متوازنة)"
+
+    return {
+        "stop_loss": stop_loss,
+        "t1": t1,
+        "t2": t2,
+        "t3": t3,
+        "position_size": position_size
+    }
+
 def evaluate_stock_with_dna(data):
     sym = data["symbol"]
     dna = get_stock_dna(sym)
+    now_cairo = datetime.now(CAIRO_TZ)
     
+    # فلتر توقيت افتتاح السوق المصري
+    is_opening_session = (now_cairo.hour == 10 and now_cairo.minute <= 30)
+    min_rvol_threshold = dna["min_rvol"] * 1.3 if is_opening_session else dna["min_rvol"]
+
     rsi, rvol, change_pct, close = data["rsi"], data["rvol"], data["change_pct"], data["close"]
     
-    # تجنب الشراء القريب جداً من القمة المرتفعة للجلسة
     if change_pct >= 8.5:
         return {"type": "None", "score": 0, "instant": False}
 
-    # 1. التقاط ديناميكي تلقائي لأي اختراق صاعد دون شروط يدوية
-    if (change_pct >= 2.0 and rvol >= dna["min_rvol"] and (dna["rsi_min"] <= rsi <= dna["rsi_max"])) or \
-       (change_pct >= 1.5 and rvol >= (dna["min_rvol"] * 1.25)):
+    if (change_pct >= 2.0 and rvol >= min_rvol_threshold and (dna["rsi_min"] <= rsi <= dna["rsi_max"])) or \
+       (change_pct >= 1.5 and rvol >= (min_rvol_threshold * 1.25)):
         return {"type": "Super Breakout 🚀", "score": 95, "instant": True}
 
-    # 2. تقييم الاتجاه العام بالنقاط
     score = 0
     if dna["rsi_min"] <= rsi <= dna["rsi_max"]: score += 30
     if close > data["ema25"]: score += 20
@@ -216,13 +236,85 @@ def evaluate_stock_with_dna(data):
     if data["macd"] > data["macd_signal"]: score += 15
     if data["is_green"]: score += 15
 
-    if score >= dna["min_score"] and rvol >= dna["min_rvol"]:
+    if score >= dna["min_score"] and rvol >= min_rvol_threshold:
         return {"type": "Regular Trend 📈", "score": score, "instant": False}
 
     return {"type": "None", "score": score, "instant": False}
 
 # ===========================================================
-# 4. محرك التعلم الذاتي والتكيّف المستمر
+# 4. محرك متابعة وتحديث الصفقات المفتوحة (Active Trade Tracker)
+# ===========================================================
+def track_active_trades(all_data):
+    active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
+    updated = False
+
+    for stock, trade in list(active_trades.items()):
+        if stock not in all_data: continue
+        current_price = all_data[stock]["close"]
+        mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
+
+        # تحقق الهدف الأول
+        if not trade.get("t1_hit") and current_price >= trade["t1"]:
+            trade["t1_hit"] = True
+            trade["current_stop"] = trade["entry_price"]  # نقل وقف الخسارة لسعر الدخول
+            updated = True
+            msg = (
+                f"🎯 **تحديث هدف [الهدف الأول تحقق]**\n\n"
+                f"📌 **السهم:** `{mb_name}`\n"
+                f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
+                f"✅ **الجراء المطلوبة:**\n"
+                f"1️⃣ بيع **40%** من الكمية لحجز أرباح المرحلة الأولى.\n"
+                f"2️⃣ رفع **وقف الخسارة** للكمية المتبقية إلى سعر الدخول: `{trade['entry_price']} ج.م`."
+            )
+            send_telegram_direct(msg)
+
+        # تحقق الهدف الثاني
+        elif trade.get("t1_hit") and not trade.get("t2_hit") and current_price >= trade["t2"]:
+            trade["t2_hit"] = True
+            trade["current_stop"] = trade["t1"]  # نقل وقف الخسارة للهدف الأول
+            updated = True
+            msg = (
+                f"🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n"
+                f"📌 **السهم:** `{mb_name}`\n"
+                f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
+                f"✅ **الجراء المطلوبة:**\n"
+                f"1️⃣ بيع **30%** إضافية من الكمية.\n"
+                f"2️⃣ رفع **وقف الخسارة** للمتبقي إلى مستوى الهدف الأول: `{trade['t1']} ج.م`."
+            )
+            send_telegram_direct(msg)
+
+        # تحقق الهدف الثالث
+        elif trade.get("t2_hit") and not trade.get("t3_hit") and current_price >= trade["t3"]:
+            trade["t3_hit"] = True
+            updated = True
+            msg = (
+                f"🔥 **تحديث هدف [الهدف الثالث الأقصى تحقق]**\n\n"
+                f"📌 **السهم:** `{mb_name}`\n"
+                f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
+                f"✅ **الجراء المطلوبة:**\n"
+                f"• بيع الكمية المتبقية بالكامل أو تتبع المتوسط الأسي `EMA25` لتحقيق أقصى ربح."
+            )
+            send_telegram_direct(msg)
+
+        # ضرب وقف الخسارة المطور
+        elif current_price <= trade.get("current_stop", trade["stop_loss"]):
+            msg = (
+                f"🛑 **تنبيه وقف الخسارة / الخروج التأميني**\n\n"
+                f"📌 **السهم:** `{mb_name}`\n"
+                f"📉 **سعر الكسر:** {current_price} ج.م\n"
+                f"🛡️ **مستوى الستوب المفعل:** {trade.get('current_stop', trade['stop_loss'])} ج.م\n\n"
+                f"⚠️ **الجراء:** إغلاق باقي مراكز السهم وتأمين الأرباح/المحفظة."
+            )
+            send_telegram_direct(msg)
+            del active_trades[stock]
+            updated = True
+
+    if updated:
+        save_json_local(ACTIVE_TRADES_FILE, active_trades)
+        save_file_to_github(ACTIVE_TRADES_FILE, active_trades, "🔄 Auto-update active trades tracker")
+
+# ===========================================================
+# 5. محرك التعلم الذاتي عند الإغلاق
 # ===========================================================
 def run_deep_learning_analysis(all_data):
     dna_memory = load_json_local(DNA_FILE, {})
@@ -236,59 +328,81 @@ def run_deep_learning_analysis(all_data):
         rvol = data["rvol"]
         rsi = data["rsi"]
         
-        # إذا صعد السهم بـ 3% أو أكثر وكان شرط السيولة منع التنبيه، يتم خفض الشرط للسهم تلقائياً
         if change_pct >= 3.0 and rvol < dna["min_rvol"]:
-            old_rvol = dna["min_rvol"]
             dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.1, 2))
             dna["missed_trades"] += 1
-            reports_log.append(f"• `{mb_name}`: حقق صعود (+{round(change_pct,2)}%) ➔ تم تخفيض شرط السيولة آلياً من `{old_rvol}x` إلى `{dna['min_rvol']}x`.")
+            reports_log.append(f"• `{mb_name}`: صعد (+{round(change_pct,2)}%) ➔ تعديل شرط السيولة آلياً إلى `{dna['min_rvol']}x`.")
 
-        # إذا تجاوز السهم نطاق RSI المعتاد مع استمرار الصعود، يتم توسيع النطاق آلياً
         if change_pct >= 3.5 and rsi > dna["rsi_max"] and dna["rsi_max"] < 82.0:
             dna["rsi_max"] = min(82.0, round(dna["rsi_max"] + 2.0, 1))
-            reports_log.append(f"• `{mb_name}`: توسيع نطاق RSI المسموح آلياً إلى `{dna['rsi_max']}`.")
+            reports_log.append(f"• `{mb_name}`: توسيع نطاق RSI آلياً إلى `{dna['rsi_max']}`.")
 
         dna["learned_sessions"] += 1
         dna_memory[sym] = dna
 
-    # حفظ وتزامن التعديلات في ملف الـ DNA وفي GitHub
     save_json_local(DNA_FILE, dna_memory)
-    save_dna_to_github(dna_memory)
+    save_file_to_github(DNA_FILE, dna_memory, "🧠 Auto-update Stock DNA")
 
     if reports_log:
-        report = "🧠 **تكيّف تلقائي للذاكرة (Autonomous Stock DNA Update)**\n\n"
-        report += "قام البوت برصد حركة الأسهم وتعديل معاييرها آلياً وحفظها في GitHub:\n\n"
+        report = "🧠 **تكيّف الذاكرة الذاتية (Autonomous Stock DNA Update)**\n\n"
         report += "\n".join(reports_log[:8])
         send_telegram_direct(report)
 
 # ===========================================================
-# 5. الدورة الرئيسية للفحص
+# 6. الدورة الرئيسية
 # ===========================================================
 def run_pipeline():
     now_cairo = datetime.now(CAIRO_TZ)
-    logging.info(f"🔍 تشغيل الفحص الذكي الذاتي [{now_cairo.strftime('%H:%M')} مصر]...")
+    logging.info(f"🔍 تشغيل الفحص والرد الذكي وإدارة الصفقات [{now_cairo.strftime('%H:%M')} مصر]...")
     
     all_data = {}
+    active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
+
     for stock in STOCKS:
         data = fetch_stock_data_safe(stock)
         if data:
             all_data[stock] = data
             eval_res = evaluate_stock_with_dna(data)
             
-            if eval_res["instant"]:
+            # اقتناص صفقة جديدة
+            if eval_res["instant"] and stock not in active_trades:
                 mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
+                plan = calculate_portfolio_plan(data["close"], data["rsi"])
+                
+                # حفظ الصفقة في الصفقات النشطة
+                active_trades[stock] = {
+                    "entry_price": data["close"],
+                    "stop_loss": plan["stop_loss"],
+                    "current_stop": plan["stop_loss"],
+                    "t1": plan["t1"],
+                    "t2": plan["t2"],
+                    "t3": plan["t3"],
+                    "t1_hit": False,
+                    "t2_hit": False,
+                    "t3_hit": False
+                }
+                save_json_local(ACTIVE_TRADES_FILE, active_trades)
+                save_file_to_github(ACTIVE_TRADES_FILE, active_trades, f"➕ Add active trade: {stock}")
+
                 msg = (
                     f"🚀 **إشارة اقتناص فوري ({eval_res['type']})**\n\n"
-                    f"السهم: `{mb_name}`\n"
-                    f"السعر الحالي: {data['close']}\n"
-                    f"نسبة التغير: +{round(data['change_pct'], 2)}%\n"
-                    f"السيولة النسبية: {round(data['rvol'], 2)}x\n"
-                    f"مؤشر RSI: {round(data['rsi'], 1)}"
+                    f"📌 **السهم:** `{mb_name}`\n"
+                    f"💵 **سعر الدخول:** {data['close']} ج.م (+{round(data['change_pct'], 2)}%)\n"
+                    f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n\n"
+                    f"🛡️ **خطة إدارة المحفظة والصفقة:**\n"
+                    f"• **وقف الخسارة المبدئي:** `{plan['stop_loss']} ج.م` (-2.5%)\n"
+                    f"• **الهدف 1:** `{plan['t1']} ج.م` (+2.5%) ➔ *بيع 40% وارفع الستوب لسعر الدخول*\n"
+                    f"• **الهدف 2:** `{plan['t2']} ج.م` (+5.0%) ➔ *بيع 30% وارفع الستوب للهدف 1*\n"
+                    f"• **الهدف 3:** `{plan['t3']} ج.م` (+8.5%) ➔ *بيع المتبقي وتتبع الأرباح*\n\n"
+                    f"💡 **حجم الصفقة المقترح:** {plan['position_size']}"
                 )
                 send_telegram_direct(msg)
         time.sleep(0.3)
 
-    # تشغيل التعلم والتحليل الذاتي عند الساعة 02:15 ظهراً وحفظ التحديثات تلقائياً
+    # متابعة الصفقات النشطة السابقة
+    track_active_trades(all_data)
+
+    # تشغيل محرك التعلم بعد الإغلاق
     if now_cairo.hour == 14 and now_cairo.minute >= 15:
         run_deep_learning_analysis(all_data)
 
