@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import json
+import base64
 import random
 import logging
 from datetime import datetime
@@ -10,7 +11,7 @@ import requests
 from tradingview_ta import TA_Handler, Interval
 
 # ===========================================================
-# 1. الإعدادات الأساسية والمنطقة الزمنية
+# 1. الإعدادات والربط مع GitHub
 # ===========================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -22,13 +23,10 @@ CAIRO_TZ = ZoneInfo("Africa/Cairo")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "5418506244")
 
-DATA_FILE = "daily_history.json"
-PENDING_FILE = "pending_signals.json"
-TRADES_FILE = "today_trades.json"
-CONFIG_FILE = "strategy_config.json"
-
-audit_sent_today = False
-last_audit_date = None
+# إعدادات ذاكرة GitHub الدائمة
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "") # صيغته: username/repo-name
+DNA_FILE = "stocks_dna_memory.json"
 
 EGX33_SYMBOLS_MAP = {
     "ABUK": "ABUK.CA (أبو قير للأسمدة)", "MFPC": "MFPC.CA (موبكو)",
@@ -51,9 +49,9 @@ EGX33_SYMBOLS_MAP = {
 STOCKS = list(EGX33_SYMBOLS_MAP.keys())
 
 # ===========================================================
-# 2. إدارة التخزين واستراتيجية التعلم
+# 2. محرك الحفظ والاسترجاع الدائم عبر GitHub API
 # ===========================================================
-def load_json(file_path, default=None):
+def load_json_local(file_path, default=None):
     if default is None: default = {}
     if os.path.exists(file_path):
         try:
@@ -63,38 +61,79 @@ def load_json(file_path, default=None):
             return default
     return default
 
-def save_json(file_path, data):
+def save_json_local(file_path, data):
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logging.error(f"فشل حفظ {file_path}: {e}")
+        logging.error(f"فشل حفظ {file_path} محلياً: {e}")
+
+def save_dna_to_github(data):
+    """حفظ دائم وملتزم (Commit) لملف الذاكرة مباشرة على GitHub"""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        logging.warning("⚠️ لم يتم ضبط GITHUB_TOKEN أو GITHUB_REPO. سيتم الحفظ محلياً فقط.")
+        save_json_local(DNA_FILE, data)
+        return
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DNA_FILE}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # 1. الحصول على الـ sha الخاص بالملف إن وجد للتحديث عليه
+    sha = None
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            sha = res.json().get("sha")
+    except Exception as e:
+        logging.error(f"خطأ قراءة sha من GitHub: {e}")
+
+    # 2. تجهيز البيانات وتشفيرها بـ Base64
+    content_str = json.dumps(data, ensure_ascii=False, indent=2)
+    content_encoded = base64.b64encode(content_str.encode('utf-8')).decode('utf-8')
+
+    payload = {
+        "message": "🧠 Auto-update Stock DNA Memory [Post-Market Learning]",
+        "content": content_encoded
+    }
+    if sha:
+        payload["sha"] = sha
+
+    # 3. رفع الملف التحديثي لـ GitHub
+    try:
+        put_res = requests.put(url, headers=headers, json=payload, timeout=15)
+        if put_res.status_code in [200, 201]:
+            logging.info("✅ تم حفظ وتحديث الذاكرة الدائمة في GitHub بنجاح!")
+        else:
+            logging.error(f"فشل الحفظ في GitHub: {put_res.text}")
+    except Exception as e:
+        logging.error(f"خطأ اتصال أثناء التحديث في GitHub: {e}")
+
+def get_stock_dna(symbol):
+    dna_memory = load_json_local(DNA_FILE, {})
+    default_dna = {
+        "min_rvol": 1.1,
+        "min_score": 65,
+        "rsi_min": 42.0,
+        "rsi_max": 70.0,
+        "missed_trades": 0,
+        "learned_sessions": 0
+    }
+    return dna_memory.get(symbol, default_dna)
 
 def send_telegram_direct(message: str):
-    """إرسال مباشر عبر API التليجرام وبدون حاجة للتنصت البطيء"""
     if not BOT_TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        if res.status_code != 200:
-            logging.error(f"خطأ تليجرام: {res.text}")
+        requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        logging.error(f"خطأ اتصال بتليجرام: {e}")
-
-def get_learned_config():
-    default_config = {
-        "min_rvol_trend": 1.1,
-        "min_score": 65,
-        "rsi_min": 45.0,
-        "rsi_max": 68.0,
-        "use_macd_filter": True,
-        "learned_days": 0
-    }
-    return load_json(CONFIG_FILE, default_config)
+        logging.error(f"خطأ تليجرام: {e}")
 
 # ===========================================================
-# 3. جلب البيانات والتوقيت
+# 3. جلب البيانات وتقييم الأسهم حسب بصمتها (Stock DNA)
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
     for attempt in range(max_retries):
@@ -136,187 +175,102 @@ def fetch_stock_data_safe(symbol, max_retries=3):
             }
         except Exception as e:
             if "429" in str(e) or "Too Many Requests" in str(e):
-                wait_time = (attempt + 1) * 2.0 + random.uniform(0.5, 1.5)
-                time.sleep(wait_time)
+                time.sleep((attempt + 1) * 2.0)
             else:
-                logging.error(f"❌ خطأ في جلب {symbol}: {e}")
                 break
     return None
 
-def is_market_open():
-    now_cairo = datetime.now(CAIRO_TZ)
-    if now_cairo.weekday() in [4, 5]: # عطلة الجمعة والسبت
-        return False
-    start_time = now_cairo.replace(hour=10, minute=0, second=0, microsecond=0)
-    end_time = now_cairo.replace(hour=14, minute=30, second=0, microsecond=0)
-    return start_time <= now_cairo <= end_time
-
-def evaluate_stock(data, config):
+def evaluate_stock_with_dna(data):
+    sym = data["symbol"]
+    dna = get_stock_dna(sym)
+    
     rsi, rvol, change_pct, close = data["rsi"], data["rvol"], data["change_pct"], data["close"]
     
     if change_pct >= 8.5:
-        return {"type": "None", "score": 0}
+        return {"type": "None", "score": 0, "instant": False}
 
-    if rvol >= 2.5 and change_pct >= 1.5 and (50.0 <= rsi <= 72.0):
+    # اختراق قوي حسب سيولة السهم
+    if rvol >= (dna["min_rvol"] * 1.8) and change_pct >= 2.0 and (45.0 <= rsi <= 75.0):
         return {"type": "Super Breakout 🚀", "score": 95, "instant": True}
 
     score = 0
-    if config["rsi_min"] <= rsi <= config["rsi_max"]: score += 30
+    if dna["rsi_min"] <= rsi <= dna["rsi_max"]: score += 30
     if close > data["ema25"]: score += 20
     if close > data["ema50"]: score += 20
-    if config.get("use_macd_filter", True) and data["macd"] > data["macd_signal"]: score += 15
+    if data["macd"] > data["macd_signal"]: score += 15
     if data["is_green"]: score += 15
 
-    if score >= config["min_score"] and rvol >= config["min_rvol_trend"]:
+    if score >= dna["min_score"] and rvol >= dna["min_rvol"]:
         return {"type": "Regular Trend 📈", "score": score, "instant": False}
 
     return {"type": "None", "score": score, "instant": False}
 
 # ===========================================================
-# 4. محرك التحليل والتشخيص والتكيف التلقائي (Post-Market AI Engine)
+# 4. محرك التعلم الذاتي وحفظ التعديلات في GitHub
 # ===========================================================
-def run_post_market_analysis(all_data, history):
-    config = get_learned_config()
-    trades = load_json(TRADES_FILE, {})
+def run_deep_learning_analysis(all_data):
+    dna_memory = load_json_local(DNA_FILE, {})
+    reports_log = []
     
-    correct_signals = []
-    false_signals = []
-    missed_opportunities = []
-
     for sym, data in all_data.items():
         mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
-        hist_info = history.get(sym, {})
-        start_p = hist_info.get("first_price", data["open"])
-        curr_p = data["close"]
+        dna = dna_memory.get(sym, get_stock_dna(sym))
         
-        actual_change = round(((curr_p - start_p) / start_p) * 100, 2) if start_p > 0 else 0.0
-        max_score = hist_info.get("max_score", 0)
+        change_pct = data["change_pct"]
+        rvol = data["rvol"]
+        rsi = data["rsi"]
+        
+        # 1. إذا صعد السهم بأكثر من 3% ولم يلتقطه البوت، يتم تخفيض شرط RVOL له
+        if change_pct >= 3.0 and rvol < dna["min_rvol"]:
+            old_rvol = dna["min_rvol"]
+            dna["min_rvol"] = max(0.8, round(dna["min_rvol"] - 0.1, 2))
+            dna["missed_trades"] += 1
+            reports_log.append(f"• `{mb_name}`: صعد (+{change_pct}%) ➔ تخفيض شرط السيولة له من `{old_rvol}x` إلى `{dna['min_rvol']}x`.")
 
-        if sym in trades:
-            entry_p = trades[sym]["entry"]
-            perf = round(((curr_p - entry_p) / entry_p) * 100, 2)
-            if perf >= 1.5:
-                correct_signals.append(f"• `{mb_name}`: دخول {entry_p} ➔ إغلاق {curr_p} (+{perf}%)")
-            else:
-                false_signals.append(
-                    f"• `{mb_name}`: دخول {entry_p} ➔ إغلاق {curr_p} ({perf}%)\n"
-                    f"  🔍 السبب الفني: سيولة كاذبة (RVOL: {round(data['rvol'],2)}x) وبدء جني أرباح."
-                )
+        # 2. تعديل حد RSI الأقصى إذا كان السهم يمتلك زخماً مرتفعاً للغاية
+        if change_pct >= 3.5 and rsi > dna["rsi_max"] and dna["rsi_max"] < 75.0:
+            dna["rsi_max"] = min(78.0, round(dna["rsi_max"] + 2.0, 1))
+            reports_log.append(f"• `{mb_name}`: توسيع نطاق RSI للسهم إلى `{dna['rsi_max']}` لتفادي تفويته.")
 
-        elif actual_change >= 2.0 and max_score < config["min_score"]:
-            reasons = []
-            if data["rvol"] < config["min_rvol_trend"]:
-                reasons.append(f"سيولة أقل من المطلوب ({round(data['rvol'],2)}x < {config['min_rvol_trend']}x)")
-            if not (config["rsi_min"] <= data["rsi"] <= config["rsi_max"]):
-                reasons.append(f"RSI خارج النطاق ({round(data['rsi'],1)})")
-            if data["close"] <= data["ema25"]:
-                reasons.append("السعر أسفل EMA25")
+        dna["learned_sessions"] += 1
+        dna_memory[sym] = dna
 
-            reason_str = " و ".join(reasons) if reasons else "تقييم عام أقل من الحد المطلوب"
-            missed_opportunities.append(
-                f"• `{mb_name}`: ارتفع (+{actual_change}%)\n"
-                f"  🔍 سبب التفويت: {reason_str}"
-            )
+    # حفظ محلي + رفع تلقائي لـ GitHub
+    save_json_local(DNA_FILE, dna_memory)
+    save_dna_to_github(dna_memory)
 
-    adjustments_made = []
-    if len(missed_opportunities) >= 2 and config["min_rvol_trend"] > 0.9:
-        old_val = config["min_rvol_trend"]
-        config["min_rvol_trend"] = round(config["min_rvol_trend"] - 0.1, 2)
-        adjustments_made.append(f"• خفض شرط السيولة الأدنى (RVOL): من `{old_val}x` إلى `{config['min_rvol_trend']}x` لعدم تفويت الأسهم الصاعدة.")
-
-    if len(false_signals) >= 1 and config["min_score"] < 75:
-        old_score = config["min_score"]
-        config["min_score"] += 5
-        adjustments_made.append(f"• رفع حد التقييم الأدنى (Score): من `{old_score}` إلى `{config['min_score']}` لفلترة الإشارات الكاذبة.")
-
-    config["learned_days"] += 1
-    save_json(CONFIG_FILE, config)
-
-    green_count = sum(1 for d in all_data.values() if d["is_green"])
-    avg_rvol = sum(d["rvol"] for d in all_data.values()) / len(all_data) if all_data else 1.0
-
-    report = "🏁 **تقرير تحليل الجلسة والتعلم الآلي (Post-Market AI Report)**\n\n"
-    report += f"📊 **ملخص البورصة اليوم:** أسهم صاعدة {green_count}/{len(all_data)} | متوسط السيولة: {round(avg_rvol, 2)}x\n\n"
-    
-    report += "✅ **1. الإشارات الصحيحة (الرابحة):**\n"
-    report += "\n".join(correct_signals) if correct_signals else "لا توجد إشارات ناجحة اليوم.\n"
-    report += "\n\n"
-
-    report += "❌ **2. الإشارات الخاطئة وتجميع الأسباب:**\n"
-    report += "\n".join(false_signals) if false_signals else "لا توجد إشارات كاذبة اليوم.\n"
-    report += "\n\n"
-
-    report += "🚀 **3. الفرص الضائعة وتشخيص أسباب عدم التقاطها:**\n"
-    report += "\n".join(missed_opportunities[:4]) if missed_opportunities else "لم تُفقد أي فرص صاعدة كبيرة اليوم.\n"
-    report += "\n\n"
-
-    report += f"🧠 **4. التعديلات التلقائية على المقاييس (أيام التعلم: {config['learned_days']}):**\n"
-    report += "\n".join(adjustments_made) if adjustments_made else "• المقاييس الحالية أثبتت كفاءتها ولم تتطلب أي تعديل للجلسة القادمة."
-
-    send_telegram_direct(report)
-    logging.info("📜 تم إرسال تقرير التحليل والتعلم بنجاح.")
+    # إرسال التقرير على تليجرام
+    if reports_log:
+        report = "🧠 **تحديث الذاكرة الدائمة للأسهم (Stock DNA Update)**\n\n"
+        report += "تم حفظ المقاييس الجديدة لهذا اليوم مباشرة على GitHub:\n\n"
+        report += "\n".join(reports_log[:6])
+        send_telegram_direct(report)
 
 # ===========================================================
-# 5. المحرك الرئيسي للفحص
+# 5. الدورة الرئيسية للفحص
 # ===========================================================
-def run_smart_scan(force=False):
-    global audit_sent_today, last_audit_date
+def run_pipeline():
     now_cairo = datetime.now(CAIRO_TZ)
-    today_str = now_cairo.strftime("%Y-%m-%d")
-
-    if last_audit_date != today_str:
-        audit_sent_today = False
-        last_audit_date = today_str
-
-    if not force and not is_market_open():
-        msg = f"⏳ [{now_cairo.strftime('%H:%M')} مصر] السوق مغلق حالياً."
-        logging.info(msg)
-        return msg
-
-    config = get_learned_config()
-    logging.info(f"🔍 بدء الفحص الذكي للأسهم...")
+    logging.info(f"🔍 تشغيل الفحص والذاكرة [{now_cairo.strftime('%H:%M')} مصر]...")
     
     all_data = {}
-    history = load_json(DATA_FILE, {})
-
     for stock in STOCKS:
         data = fetch_stock_data_safe(stock)
         if data:
             all_data[stock] = data
-            eval_res = evaluate_stock(data, config)
+            eval_res = evaluate_stock_with_dna(data)
             
-            prev_metrics = history.get(stock, {})
-            history[stock] = {
-                "max_score": max(prev_metrics.get("max_score", 0), eval_res["score"]),
-                "first_price": prev_metrics.get("first_price", data["close"]),
-                "price": data["close"],
-                "rvol": data["rvol"],
-                "rsi": data["rsi"]
-            }
+            if eval_res["instant"]:
+                mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
+                msg = f"🚀 **إشارة اقتناص ذكية ({eval_res['type']})**\n\nالسهم: `{mb_name}`\nالسعر الحالي: {data['close']}\nالسيولة النسبيّة: {round(data['rvol'],2)}x\nRSI: {round(data['rsi'],1)}"
+                send_telegram_direct(msg)
         time.sleep(0.3)
 
-    save_json(DATA_FILE, history)
+    # تشغيل محرك التعلم والـ Commit بنهاية الجلسة (14:15 - 14:30)
+    if now_cairo.hour == 14 and now_cairo.minute >= 15:
+        run_deep_learning_analysis(all_data)
 
-    # تشغيل تقرير التحليل الشامل والتعلم عند نهاية الجلسة (14:15 - 14:30)
-    if not force and now_cairo.hour == 14 and now_cairo.minute >= 15 and not audit_sent_today:
-        run_post_market_analysis(all_data, history)
-        audit_sent_today = True
-
-    if force:
-        run_post_market_analysis(all_data, history)
-        return "✅ تم تنفيذ التحليل الشامل وتحديث المقاييس بنجاح."
-
-    summary = f"✅ اكتمل الفحص. تم فحص {len(all_data)} سهم."
-    logging.info(summary)
-    return summary
-
-# ===========================================================
-# 6. نقطة الانطلاق النظيفة (مخصصة للـ Cron Job)
-# ===========================================================
 if __name__ == "__main__":
-    # عند استدعاء السكربت بواسطة Cron Job
-    # يتم إجراء الفحص الخفيف وإرسال التقارير ثم الخروج المباشر بسلام
-    run_smart_scan(force=False)
-    logging.info("🏁 انتهاء المهمة وخروج فوري لعدم حدوث تضارب.")
+    run_pipeline()
     sys.exit(0)
     
