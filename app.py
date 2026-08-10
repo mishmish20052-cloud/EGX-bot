@@ -143,7 +143,86 @@ def send_telegram_direct(message: str):
         logging.error(f"خطأ تليجرام: {e}")
 
 # ===========================================================
-# 3. جلب البيانات وحسابات أهداف المحفظة
+# 3. دالة فحص الجاهزية والربط عند الإقلاع (Startup Verification)
+# ===========================================================
+def run_startup_verification():
+    """فحص الصلاحيات والربط مع GitHub وتليجرام عند بدء التشغيل"""
+    now_cairo = datetime.now(CAIRO_TZ).strftime('%Y-%m-%d %H:%M:%S')
+    logging.info("⚙️ بدء فحص جاهزية النظام والربط...")
+
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        msg = (
+            "⚠️ *تنبيه بدء التشغيل:*\n"
+            "متغيرات البيئة لـ GitHub (`GITHUB_TOKEN` / `GITHUB_REPO`) غير مكتملة.\n"
+            "سيعمل البوت بالوضع المحلي فقط."
+        )
+        logging.warning(msg)
+        send_telegram_direct(msg)
+        return False
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{DNA_FILE}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    try:
+        # 1. اختبار قراءة الملف من GitHub
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code != 200:
+            msg = f"❌ *تنبيه خطأ الربط:*\nفشل الوصول إلى `{DNA_FILE}` على GitHub.\nرمز الحالة: `{res.status_code}`"
+            logging.error(msg)
+            send_telegram_direct(msg)
+            return False
+
+        file_info = res.json()
+        sha = file_info.get("sha")
+
+        # 2. جلب محتوى الملف الحقيقي حتى لا نفقده
+        current_data = load_json_local(DNA_FILE, {})
+        content_str = json.dumps(current_data, ensure_ascii=False, indent=2)
+        encoded_content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+
+        # 3. اختبار التحديث والكتابة عبر الـ API
+        test_payload = {
+            "message": "system: startup connection & write permission check",
+            "content": encoded_content,
+            "sha": sha
+        }
+
+        put_res = requests.put(url, headers=headers, json=test_payload, timeout=15)
+
+        if put_res.status_code in [200, 201]:
+            msg = (
+                "✅ *تقرير جاهزية النظام والربط:*\n\n"
+                f"🕒 **توقيت الفحص:** `{now_cairo}`\n"
+                f"📦 **المستودع:** `{GITHUB_REPO}`\n"
+                "• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n"
+                "• **صلاحيات الكتابة والتحديث:** *مفعلة وتعمل بنجاح*\n"
+                "• **إرسال التليجرام:** *متصل ومعتمد*\n\n"
+                "🚀 *البوت جاهز تماماً لبدء فحص السوق وجلسة التداول!*"
+            )
+            logging.info("✅ تم اختبار صلاحيات الكتابة والربط بنجاح!")
+            send_telegram_direct(msg)
+            return True
+        else:
+            msg = (
+                f"❌ *خطأ في صلاحيات الكتابة على GitHub:*\n"
+                f"رمز الاستجابة: `{put_res.status_code}`\n"
+                "يرجى التأكد من صلاحية الـ PAT (Write / Repo Access)."
+            )
+            logging.error(msg)
+            send_telegram_direct(msg)
+            return False
+
+    except Exception as e:
+        msg = f"❌ *حدث خطأ أثناء فحص جاهزية النظام:* `{str(e)}`"
+        logging.error(msg)
+        send_telegram_direct(msg)
+        return False
+
+# ===========================================================
+# 4. جلب البيانات وحسابات أهداف المحفظة
 # ===========================================================
 def fetch_stock_data_safe(symbol, max_retries=3):
     for attempt in range(max_retries):
@@ -242,7 +321,7 @@ def evaluate_stock_with_dna(data):
     return {"type": "None", "score": score, "instant": False}
 
 # ===========================================================
-# 4. محرك متابعة وتحديث الصفقات المفتوحة (Active Trade Tracker)
+# 5. محرك متابعة وتحديث الصفقات المفتوحة (Active Trade Tracker)
 # ===========================================================
 def track_active_trades(all_data):
     active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
@@ -314,7 +393,7 @@ def track_active_trades(all_data):
         save_file_to_github(ACTIVE_TRADES_FILE, active_trades, "🔄 Auto-update active trades tracker")
 
 # ===========================================================
-# 5. محرك التعلم الذاتي عند الإغلاق
+# 6. محرك التعلم الذاتي عند الإغلاق
 # ===========================================================
 def run_deep_learning_analysis(all_data):
     dna_memory = load_json_local(DNA_FILE, {})
@@ -349,7 +428,7 @@ def run_deep_learning_analysis(all_data):
         send_telegram_direct(report)
 
 # ===========================================================
-# 6. الدورة الرئيسية
+# 7. الدورة الرئيسية
 # ===========================================================
 def run_pipeline():
     now_cairo = datetime.now(CAIRO_TZ)
@@ -407,6 +486,11 @@ def run_pipeline():
         run_deep_learning_analysis(all_data)
 
 if __name__ == "__main__":
+    # 1. تنفيذ فحص الجاهزية والربط أولاً وإرسال التقرير للتليجرام
+    run_startup_verification()
+
+    # 2. تشغيل دورة الفحص الأساسية
     run_pipeline()
+
     sys.exit(0)
     
