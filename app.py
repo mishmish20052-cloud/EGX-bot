@@ -155,7 +155,6 @@ def run_startup_verification():
     dna_memory = load_json_local(DNA_FILE, {})
     last_startup_date = dna_memory.get("_sys_meta", {}).get("last_startup_date", "")
 
-    # إذا تم إرسال التقرير اليوم بالفعل، نكتفي بالـ Logging دون إرسال تليجرام
     if last_startup_date == today_str:
         logging.info("ℹ️ تم إرسال تقرير جاهزية النظام لهذا اليوم مسبقاً.")
         return True
@@ -185,7 +184,6 @@ def run_startup_verification():
         file_info = res.json()
         sha = file_info.get("sha")
 
-        # تحديث تاريخ آخر إرسال لتقرير الإقلاع
         if "_sys_meta" not in dna_memory: dna_memory["_sys_meta"] = {}
         dna_memory["_sys_meta"]["last_startup_date"] = today_str
         
@@ -456,7 +454,6 @@ def run_end_of_day_summary(all_data):
     save_json_local(DNA_FILE, dna_memory)
     save_file_to_github(DNA_FILE, dna_memory, "🧠 Auto-update Stock DNA")
 
-    # صياغة تقرير ختام الجلسة
     report = f"📋 **تقرير نهاية الجلسة اليومي ({now_cairo_str})**\n\n"
     report += f"📊 **عدد الأسهم المفحوصة:** `{len(all_data)}` سهم\n"
     report += f"💼 **الصفقات النشطة المستمرة للغد:** `{len(active_trades)}` صفقة\n\n"
@@ -492,7 +489,6 @@ def run_pipeline():
             all_data[stock] = data
             eval_res = evaluate_stock_with_dna(data)
 
-            # اقتناص فرصة جديدة
             if eval_res["instant"] and stock not in active_trades:
                 mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
                 plan = calculate_atr_portfolio_plan(data["close"], data["atr"], data["rsi"])
@@ -513,8 +509,11 @@ def run_pipeline():
                 save_file_to_github(ACTIVE_TRADES_FILE, active_trades, f"➕ Add active trade: {stock}")
 
                 daily_status = "مؤكد إيجابي 🟢" if data['is_daily_bullish'] else "تذبذب/محايد 🟡"
+                chg_val = round(data['change_pct'], 2)
 
                 msg = (
                     f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n\n"
                     f"📌 **السهم:** `{mb_name}`\n"
-                    f"💵 **سعر الدخول:** {data['close']} ج
+                    f"💵 **سعر الدخول:** {data['close']} ج.م (+{chg_val}%)\n"
+                    f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n"
+          
