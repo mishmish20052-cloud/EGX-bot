@@ -510,10 +510,11 @@ def run_pipeline():
 
                 daily_status = "مؤكد إيجابي 🟢" if data['is_daily_bullish'] else "تذبذب/محايد 🟡"
                 chg_val = round(data['change_pct'], 2)
+                rvol_val = round(data['rvol'], 2)
+                rsi_val = round(data['rsi'], 1)
 
-                msg = (
-                    f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n\n"
-                    f"📌 **السهم:** `{mb_name}`\n"
-                    f"💵 **سعر الدخول:** {data['close']} ج.م (+{chg_val}%)\n"
-                    f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n"
-          
+                msg_lines = [
+                    f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n",
+                    f"📌 **السهم:** `{mb_name}`",
+                    f"💵 **سعر الدخول:** {data['close']} ج.م (+{chg_val}%)",
+           
