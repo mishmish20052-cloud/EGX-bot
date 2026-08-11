@@ -1,3 +1,4 @@
+# ml/train_model_v2.py - نسخة محسّنة
 import json
 import logging
 import numpy as np
@@ -5,13 +6,13 @@ import pandas as pd
 import yfinance as yf
 import joblib
 from datetime import datetime
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.utils.class_weight import compute_sample_weight
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# أسهم EGX33 Sharia (بنفس رموز yfinance)
 STOCKS = [
     "ADIB.CA","SAUD.CA","FAIT.CA","EGAL.CA","AMOC.CA","SKPC.CA","ICFC.CA",
     "ARCC.CA","MCQE.CA","LCSW.CA","ATQA.CA","ORWE.CA","MTIE.CA","ACGC.CA",
@@ -20,19 +21,27 @@ STOCKS = [
     "EFIH.CA","ETEL.CA","RACC.CA","EGAS.CA","ETRS.CA","IFAP.CA","ORAS.CA"
 ]
 
-HORIZON = 5        # أفق الصفقة: 5 جلسات (Swing)
-TARGET_PCT = 2.0   # الهدف: ربح 2%+
-MAX_DD_PCT = 4.0   # أقصى تراجع مقبول قبل تحقيق الهدف
+# 🎯 معايير أكثر واقعية للسوق المصري
+HORIZON = 5          # 5 أيام
+TARGET_PCT = 1.5     # ⬇️ خفضنا من 2% إلى 1.5%
+MAX_DD_PCT = 5.0     # ⬆️ رفعنا من 4% إلى 5% (السوق المصري متقلب)
 
-FEATURES = ["rsi","macd_pct","macd_hist_pct","close_vs_ema25",
-            "close_vs_ema50","atr_pct","stoch_k","is_green","dow"]
+FEATURES = [
+    "rsi", "macd_pct", "macd_hist_pct",
+    "close_vs_ema25", "close_vs_ema50", "close_vs_ema200",
+    "atr_pct", "stoch_k", "volume_vs_sma20",
+    "high_low_range", "volatility_5d", "trend_strength"
+]
 
 def compute_features(df):
-    """حساب المؤشرات بنفس طريقة البوت تماماً (مهم للتطابق!)"""
-    close, high, low, opn = df["Close"], df["High"], df["Low"], df["Open"]
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+    opn = df["Open"]
+    vol = df["Volume"]
     f = pd.DataFrame(index=df.index)
 
-    # RSI (تنعيم Wilder مثل TradingView)
+    # RSI
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0)
     loss = -delta.where(delta < 0, 0.0)
@@ -40,7 +49,7 @@ def compute_features(df):
     al = loss.ewm(alpha=1/14, adjust=False).mean()
     f["rsi"] = 100 - 100 / (1 + ag / al.replace(0, np.nan))
 
-    # MACD كنسبة من السعر (للمقارنة بين الأسهم)
+    # MACD
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
     macd = ema12 - ema26
@@ -48,87 +57,142 @@ def compute_features(df):
     f["macd_pct"] = macd / close * 100
     f["macd_hist_pct"] = (macd - signal) / close * 100
 
-    # المسافة عن المتوسطات
-    f["close_vs_ema25"] = (close - close.ewm(span=25, adjust=False).mean()) / close * 100
-    f["close_vs_ema50"] = (close - close.ewm(span=50, adjust=False).mean()) / close * 100
+    # EMAs
+    e25 = close.ewm(span=25, adjust=False).mean()
+    e50 = close.ewm(span=50, adjust=False).mean()
+    e200 = close.ewm(span=200, adjust=False).mean()
+    f["close_vs_ema25"] = (close - e25) / close * 100
+    f["close_vs_ema50"] = (close - e50) / close * 100
+    f["close_vs_ema200"] = (close - e200) / close * 100
 
-    # التذبذب ATR%
+    # ATR
     tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
     f["atr_pct"] = tr.ewm(alpha=1/14, adjust=False).mean() / close * 100
 
-    # Stochastic %K
-    l14, h14 = low.rolling(14).min(), high.rolling(14).max()
+    # Stochastic
+    l14 = low.rolling(14).min()
+    h14 = high.rolling(14).max()
     f["stoch_k"] = (close - l14) / (h14 - l14).replace(0, np.nan) * 100
 
-    f["is_green"] = (close > opn).astype(int)
-    f["dow"] = df.index.dayofweek
+    # 🆕 حجم التداول vs المتوسط (Smart Money)
+    vol_sma = vol.rolling(20).mean()
+    f["volume_vs_sma20"] = vol / vol_sma.replace(0, np.nan)
+
+    # 🆕 مدى الحركة اليومي (Volatility Range)
+    f["high_low_range"] = ((high - low) / close * 100)
+
+    # 🆕 التقلب في آخر 5 أيام
+    f["volatility_5d"] = close.pct_change().rolling(5).std() * 100
+
+    # 🆕 قوة الاتجاه (Trend Strength)
+    returns = close.pct_change()
+    f["trend_strength"] = returns.rolling(20).mean() / returns.rolling(20).std().replace(0, np.nan)
+
     return f
 
 def make_labels(df):
-    """1 = صفقة كانت ستنجح (ربح 2%+ خلال 5 جلسات دون تراجع 4%)"""
-    close, low = df["Close"], df["Low"]
+    close = df["Close"]
+    low = df["Low"]
     future_close = close.shift(-HORIZON)
     future_min = low.rolling(HORIZON).min().shift(-HORIZON)
+
     profit = future_close >= close * (1 + TARGET_PCT/100)
     safe = future_min >= close * (1 - MAX_DD_PCT/100)
     return (profit & safe).astype(int)
 
 def main():
+    logging.info("🚀 بدء التدريب المحسّن V2...")
     all_x, all_y = [], []
+
     for sym in STOCKS:
         try:
-            df = yf.download(sym, period="3y", interval="1d",
+            logging.info(f"📥 تحميل {sym}...")
+            df = yf.download(sym, period="5y", interval="1d",
                              auto_adjust=True, progress=False)
-            if df is None or len(df) < 250:
-                logging.warning(f"⚠️ بيانات غير كافية: {sym}")
+            if df is None or len(df) < 300:
+                logging.warning(f"⚠️ {sym}: بيانات غير كافية")
                 continue
-            # تسطيح أعمدة MultiIndex من yfinance
+
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
+
             f = compute_features(df)
             y = make_labels(df)
             data = f.join(y.rename("label")).dropna()
+
+            if len(data) < 100:
+                continue
+
             all_x.append(data[FEATURES])
             all_y.append(data["label"])
-            logging.info(f"✅ {sym}: {len(data)} صف")
+            logging.info(f"✅ {sym}: {len(data)} صف | نجاح: {data['label'].mean()*100:.1f}%")
+
         except Exception as e:
             logging.error(f"❌ {sym}: {e}")
 
     if not all_x:
-        raise SystemExit("لا توجد بيانات كافية للتدريب!")
+        raise SystemExit("💥 لا توجد بيانات!")
 
     X = pd.concat(all_x)
     y = pd.concat(all_y)
-    logging.info(f"📊 إجمالي البيانات: {len(X)} | نسبة الإيجابيات: {y.mean()*100:.1f}%")
 
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, shuffle=False)
+    pos_rate = y.mean()
+    logging.info(f"📊 إجمالي: {len(X)} | نسبة النجاح: {pos_rate*100:.1f}%")
 
-    model = RandomForestClassifier(
-        n_estimators=150, max_depth=8, min_samples_leaf=10,
-        class_weight="balanced", random_state=42, n_jobs=2
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, shuffle=False, stratify=y)
+
+    # 🆕 نموذج أقوى + معالجة الاختلال
+    sample_weights = compute_sample_weight("balanced", y_tr)
+
+    model = GradientBoostingClassifier(
+        n_estimators=200,
+        max_depth=5,
+        learning_rate=0.05,
+        min_samples_leaf=20,
+        subsample=0.8,
+        random_state=42
     )
-    model.fit(X_tr, y_tr)
+    model.fit(X_tr, y_tr, sample_weight=sample_weights)
 
     pred = model.predict(X_te)
+    pred_proba = model.predict_proba(X_te)[:, 1]
+
+    # 🆕 مقاييس متعددة (ليست accuracy فقط!)
     acc = accuracy_score(y_te, pred)
-    logging.info(f"🎯 الدقة على بيانات الاختبار: {acc*100:.1f}%")
-    print(classification_report(y_te, pred, digits=2))
+    prec = precision_score(y_te, pred, zero_division=0)
+    rec = recall_score(y_te, pred, zero_division=0)
+    f1 = f1_score(y_te, pred, zero_division=0)
+
+    logging.info(f"🎯 Accuracy : {acc*100:.1f}%")
+    logging.info(f"🎯 Precision: {prec*100:.1f}% (الدقة عند الشراء)")
+    logging.info(f"🎯 Recall   : {rec*100:.1f}% (قدرة الالتقاط)")
+    logging.info(f"🎯 F1 Score : {f1*100:.1f}% (التوازن)")
 
     joblib.dump(model, "ml/egx_model.joblib")
 
+    # Feature importance
+    importance = dict(zip(FEATURES, model.feature_importances_))
+    importance = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True))
+
     meta = {
         "trained_at": datetime.utcnow().isoformat(),
+        "version": "V2 - Improved",
         "accuracy": round(acc, 3),
+        "precision": round(prec, 3),
+        "recall": round(rec, 3),
+        "f1_score": round(f1, 3),
         "samples": int(len(X)),
-        "positive_rate": round(float(y.mean()), 3),
+        "positive_rate": round(float(pos_rate), 3),
+        "horizon_days": HORIZON,
+        "target_pct": TARGET_PCT,
+        "max_dd_pct": MAX_DD_PCT,
         "features": FEATURES,
-        "importance": {k: round(float(v), 3) for k, v in
-                       zip(FEATURES, model.feature_importances_)}
+        "importance": {k: round(v, 3) for k, v in importance.items()}
     }
     with open("ml/model_meta.json", "w") as fh:
         json.dump(meta, fh, indent=2)
 
-    logging.info("💾 تم حفظ النموذج بنجاح!")
+    logging.info("💾 تم حفظ النموذج المحسّن!")
 
 if __name__ == "__main__":
     main()
