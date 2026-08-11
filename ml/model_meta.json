@@ -1,39 +1,39 @@
 {
-  "trained_at": "2026-08-11T17:10:19.087907",
+  "trained_at": "2026-08-11T17:12:24.699681",
   "version": "V4 - Smart Features",
-  "accuracy": 0.508,
-  "precision": 0.386,
-  "recall": 0.549,
-  "f1_score": 0.453,
-  "recommended_threshold": 0.5,
+  "accuracy": 0.595,
+  "precision": 0.407,
+  "recall": 0.193,
+  "f1_score": 0.262,
+  "recommended_threshold": 0.55,
   "thresholds": {
     "0.45": {
-      "precision": 0.386,
-      "recall": 0.777,
-      "f1": 0.516
+      "precision": 0.389,
+      "recall": 0.792,
+      "f1": 0.521
     },
     "0.5": {
-      "precision": 0.386,
+      "precision": 0.39,
       "recall": 0.549,
-      "f1": 0.453
+      "f1": 0.456
     },
     "0.55": {
-      "precision": 0.393,
-      "recall": 0.202,
-      "f1": 0.267
+      "precision": 0.407,
+      "recall": 0.193,
+      "f1": 0.262
     },
     "0.6": {
-      "precision": 0.346,
-      "recall": 0.039,
-      "f1": 0.07
+      "precision": 0.42,
+      "recall": 0.05,
+      "f1": 0.089
     },
     "0.65": {
-      "precision": 0.29,
-      "recall": 0.006,
-      "f1": 0.012
+      "precision": 0.357,
+      "recall": 0.012,
+      "f1": 0.024
     },
     "0.7": {
-      "precision": 0.25,
+      "precision": 0.143,
       "recall": 0.001,
       "f1": 0.001
     }
@@ -53,15 +53,15 @@
     "market_regime"
   ],
   "importance": {
-    "rs_20d": 0.017,
-    "rs_60d": 0.0,
+    "rs_20d": 0.014,
+    "vol_zscore_5": 0.006,
+    "vol_zscore_20": 0.005,
+    "rs_60d": 0.004,
+    "reversal_5d": 0.001,
     "momentum_60d": 0.0,
     "market_regime": 0.0,
-    "reversal_5d": -0.001,
-    "vol_zscore_5": -0.002,
-    "vol_zscore_20": -0.002,
-    "rs_5d": -0.013,
-    "atr_pct": -0.015,
-    "volatility_20": -0.025
+    "rs_5d": -0.009,
+    "atr_pct": -0.013,
+    "volatility_20": -0.028
   }
 }
