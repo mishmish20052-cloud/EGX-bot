@@ -24,7 +24,9 @@ TRADES_FILE = "active_trades.json"
 STATS_FILE = "daily_stats.json"
 
 TOTAL_CAPITAL = float(os.environ.get("TOTAL_CAPITAL", "50000"))
-BASE_RISK = 0.01
+BASE_RISK = 0.005            # 🛡️ 0.5% لأول أسبوعين (ترفعها لاحقاً إلى 0.01)
+MAX_POSITION_WEIGHT = 20.0   # 🛡️ أقصى 20% للصفقة الواحدة
+MAX_TOTAL_EXPOSURE = 90.0    # 🛡️ أقصى 90% من الأموال مستثمرة
 TIME_STOP_DAYS = 5
 MIN_VOLUME = 50000
 
@@ -66,9 +68,6 @@ SHARIA_STOCKS = {
 STOCKS = list(SHARIA_STOCKS.keys())
 DEFENSIVE = {"FOOD", "HEALTHCARE", "TELECOM"}
 
-# ===========================================================
-# 💾 الذاكرة والتليجرام
-# ===========================================================
 def load_json_local(p, d=None):
     if d is None: d = {}
     if os.path.exists(p):
@@ -103,13 +102,12 @@ def save_to_github(name, data, msg):
         logging.error(f"GitHub خطأ: {e}")
 
 def send_tg(msg):
-    if not BOT_TOKEN or not CHAT_ID: 
-        logging.error("TG: TOKEN/CHAT مفقود"); return
+    if not BOT_TOKEN or not CHAT_ID: return
     try:
         r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                       json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
         if r.status_code != 200:
-            logging.error(f"TG فشل: {r.status_code} - {r.text}")
+            logging.error(f"TG فشل: {r.status_code}")
     except Exception as e:
         logging.error(f"TG خطأ: {e}")
 
@@ -118,12 +116,8 @@ def get_dna(sym):
     return mem.get(sym, {"min_rvol": 0.85, "min_score": 60, "rsi_min": 38, "rsi_max": 76,
                          "total_trades": 0, "winning_trades": 0, "win_rate": 100.0})
 
-# ===========================================================
-# 🌍 حالة السوق (EGX30) - محصّنة ضد الفشل
-# ===========================================================
 def market_regime():
-    symbols_to_try = ["EGX30", "EGX30.CA", "^EGX30", "TMGH"]  # fallback لأكبر سهم
-    for sym in symbols_to_try:
+    for sym in ["EGX30", "EGX30.CA", "^EGX30", "TMGH"]:
         try:
             h = TA_Handler(symbol=sym, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_1_DAY)
             i = h.get_analysis().indicators
@@ -134,7 +128,6 @@ def market_regime():
                 msig = i.get("MACD.signal", 0) or 0
                 o = i.get("open", c)
                 chg = ((c - o) / o * 100) if o else 0
-                logging.info(f"📊 استخدام {sym} للسوق: السعر={c}")
                 if chg <= -3.0 or (e200 and c < e200 and rsi < 30):
                     return {"type": "CRASH ⚫", "mult": 0.0, "max_trades": 0, "risk": "EXTREME", "chg": chg}
                 if e50 and e200 and c > e50 > e200 and macd > msig and rsi < 75:
@@ -144,23 +137,17 @@ def market_regime():
                 if e50 and c < e50 and macd < msig:
                     return {"type": "BEAR 🔴", "mult": 0.5, "max_trades": 2, "risk": "HIGH", "chg": chg, "defensive": True}
                 return {"type": "SIDEWAYS 🟠", "mult": 0.8, "max_trades": 3, "risk": "MEDIUM", "chg": chg}
-        except Exception as e:
-            logging.warning(f"فشل {sym}: {e}")
+        except Exception:
             continue
-    # fallback أخير
     return {"type": "UNKNOWN 🟡", "mult": 1.0, "max_trades": 3, "risk": "MEDIUM", "chg": 0}
 
-# ===========================================================
-# 📊 جلب البيانات
-# ===========================================================
 def fetch(stock):
     try:
         h15 = TA_Handler(symbol=stock, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_15_MINUTES)
         i15 = h15.get_analysis().indicators
         h1 = TA_Handler(symbol=stock, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_1_DAY)
         i1 = h1.get_analysis().indicators
-    except Exception as e:
-        logging.warning(f"fetch {stock} فشل: {e}")
+    except Exception:
         return None
 
     c = i15.get("close", 0) or 0
@@ -185,9 +172,6 @@ def fetch(stock):
         "bull1d": c1 >= e50d,
     }
 
-# ===========================================================
-# 🎯 التقييم
-# ===========================================================
 def evaluate(d, dna, regime):
     if d["volume"] < MIN_VOLUME: return None
     if d["chg"] >= 8.5: return None
@@ -216,24 +200,24 @@ def evaluate(d, dna, regime):
         return {"type": "Trend 📈", "score": score}
     return None
 
-# ===========================================================
-# 💼 خطة الصفقة
-# ===========================================================
-def make_plan(c, atr1, mult):
+def make_plan(c, atr1, mult, deployed):
+    """🛡️ خطة محصّنة: مخاطرة + سقف وزن + سقف سيولة"""
     sd = max(1.5 * atr1, c * 0.04)
     sd = min(sd, c * 0.06)
     sl = round(c - sd, 2)
     risk_amt = TOTAL_CAPITAL * BASE_RISK * max(mult, 0.5)
-    shares = max(1, math.floor(risk_amt / sd))
+    shares = math.floor(risk_amt / sd)
+    cap_weight = math.floor((TOTAL_CAPITAL * MAX_POSITION_WEIGHT / 100) / c)
+    remaining = (TOTAL_CAPITAL * MAX_TOTAL_EXPOSURE / 100) - deployed
+    cap_cash = math.floor(remaining / c) if remaining > 0 else 0
+    shares = min(shares, cap_weight, cap_cash)
+    if shares < 1: return None
     return {
         "sl": sl, "shares": shares,
         "t1": round(c + 1.5 * sd, 2), "t2": round(c + 3 * sd, 2), "t3": round(c + 4.5 * sd, 2),
         "weight": round(shares * c / TOTAL_CAPITAL * 100, 1),
     }
 
-# ===========================================================
-# 🔄 متابعة الصفقات
-# ===========================================================
 def track(all_data):
     trades = load_json_local(TRADES_FILE, {})
     dna_mem = load_json_local(DNA_FILE, {})
@@ -289,9 +273,6 @@ def bump_stat(key):
     d[key] = d.get(key, 0) + 1
     save_json_local(STATS_FILE, stats)
 
-# ===========================================================
-# 📋 التقارير
-# ===========================================================
 def morning_report(regime):
     stats = load_json_local(STATS_FILE, {})
     today = datetime.now(CAIRO).strftime("%Y-%m-%d")
@@ -316,18 +297,13 @@ def eod_report(trades):
     stats["_meta"] = stats.get("_meta", {}); stats["_meta"]["eod"] = today
     save_json_local(STATS_FILE, stats)
 
-# ===========================================================
-# 🚀 المحرك الرئيسي
-# ===========================================================
 def run():
     logging.info(f"🚀 بدء التشغيل - FORCE_RUN={FORCE_RUN}")
-    
     regime = market_regime()
     logging.info(f"🌍 السوق: {regime['type']}")
 
-    # في التشغيل اليدوي: أرسل تأكيد
     if FORCE_RUN:
-        send_tg(f"🧪 *تشغيل يدوي*\n\n🌍 السوق: `{regime['type']}`\n📊 التغير: `{regime['chg']:+.2f}%`\n💰 رأس المال: `{TOTAL_CAPITAL:,.0f}` ج.م\n🎯 سأفحص {len(STOCKS)} سهم الآن...")
+        send_tg(f"🧪 *تشغيل يدوي*\n\n🌍 السوق: `{regime['type']}`\n📊 التغير: `{regime['chg']:+.2f}%`\n💰 رأس المال: `{TOTAL_CAPITAL:,.0f}` ج.م")
 
     if regime["mult"] == 0.0:
         trades = load_json_local(TRADES_FILE, {})
@@ -345,6 +321,7 @@ def run():
     trades = load_json_local(TRADES_FILE, {})
     all_data = {}
     signals_count = 0
+    deployed = sum(t.get("entry_price", 0) * t.get("shares", 0) for t in trades.values())
 
     for sym in allowed:
         d = fetch(sym)
@@ -356,18 +333,23 @@ def run():
 
         res = evaluate(d, get_dna(sym), regime)
         if res and sym not in trades and len(trades) < regime["max_trades"]:
-            plan = make_plan(d["close"], d["atr1"], regime["mult"])
+            plan = make_plan(d["close"], d["atr1"], regime["mult"], deployed)
+            if not plan:
+                logging.info(f"⛔ تخطي {sym}: لا توجد سيولة كافية")
+                continue
             trades[sym] = {"entry_price": d["close"], "entry_date": datetime.now(CAIRO).strftime('%Y-%m-%d'),
+                           "shares": plan["shares"],
                            "sl": plan["sl"], "current_stop": plan["sl"],
                            "t1": plan["t1"], "t2": plan["t2"], "t3": plan["t3"],
                            "t1_hit": False, "t2_hit": False, "t3_hit": False}
+            deployed += plan["shares"] * d["close"]
             bump_stat("signals")
             signals_count += 1
             send_tg(
                 f"🚀 *{res['type']}*\n\n"
                 f"🌍 السوق: `{regime['type']}`\n"
                 f"📌 `{SHARIA_STOCKS[sym][0]}` ({SHARIA_STOCKS[sym][1]})\n"
-                f"💵 دخول: `{d['close']}` | 📊 RSI: `{d['rsi15']:.0f}` | 🔊 `{d['rvol']}x`\n"
+                f"💵 دخول: `{d['close']}` | 📊 RSI: `{d['rsi15']:.0f}`\n"
                 f"🔢 الكمية: `{plan['shares']}` سهم ({plan['weight']}%)\n\n"
                 f"🛑 ستوب: `{plan['sl']}`\n"
                 f"🎯 T1 `{plan['t1']}` | T2 `{plan['t2']}` | T3 `{plan['t3']}`")
@@ -376,10 +358,9 @@ def run():
 
     track(all_data)
     eod_report(trades)
-    
-    # تقرير نهائي للتشغيل اليدوي
+
     if FORCE_RUN:
-        send_tg(f"✅ *اكتمل الفحص*\n\n📊 فحصت {len(all_data)} سهم\n🎯 إشارات جديدة: {signals_count}\n💼 صفقات مفتوحة: {len(trades)}")
+        send_tg(f"✅ *اكتمل الفحص*\n\n📊 فحصت {len(all_data)} سهم\n🎯 إشارات جديدة: {signals_count}\n💼 مفتوحة: {len(trades)}\n💵 مستثمر: {deployed:,.0f} ج.م ({deployed/TOTAL_CAPITAL*100:.0f}%)")
 
 if __name__ == "__main__":
     run()
