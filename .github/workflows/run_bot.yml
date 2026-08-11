@@ -1,0 +1,68 @@
+name: EGX Bot Scheduler
+
+on:
+  schedule:
+    - cron: '*/5 7-8 * * 0-4'
+    - cron: '*/15 9-12 * * 0-4'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '1 = test run'
+        default: '0'
+
+permissions:
+  contents: write
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check market hours
+        id: market
+        run: |
+          H=$(TZ=Africa/Cairo date +%-H)
+          M=$(TZ=Africa/Cairo date +%-M)
+          D=$(TZ=Africa/Cairo date +%u)
+          FORCE=${{ github.event.inputs.force || '0' }}
+          RUN=false
+          if [ "$FORCE" = "1" ]; then RUN=true; fi
+          if [ "$RUN" = "false" ]; then
+            if [ "$D" -le 4 ] || [ "$D" -eq 7 ]; then
+              if [ "$H" -ge 10 ] && [ "$H" -lt 14 ]; then RUN=true; fi
+              if [ "$H" -eq 14 ] && [ "$M" -le 30 ]; then RUN=true; fi
+            fi
+          fi
+          echo "run=$RUN" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        if: steps.market.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: steps.market.outputs.run == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        if: steps.market.outputs.run == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          TOTAL_CAPITAL: ${{ secrets.TOTAL_CAPITAL }}
+        run: python bot.py
+
+      - name: Save memory
+        if: steps.market.outputs.run == 'true'
+        run: |
+          git config user.name "EGX Bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -f stocks_dna_memory.json active_trades.json daily_stats.json 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Memory update"
+          git push || echo "No changes"
