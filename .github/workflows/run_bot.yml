@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: '1 = test run'
-        default: '0'
+        description: '1 = تشغيل يدوي خارج أوقات السوق'
+        default: '1'
 
 permissions:
   contents: write
@@ -36,6 +36,7 @@ jobs:
             fi
           fi
           echo "run=$RUN" >> $GITHUB_OUTPUT
+          echo "force=$FORCE" >> $GITHUB_OUTPUT
 
       - name: Setup Python
         if: steps.market.outputs.run == 'true'
@@ -56,6 +57,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           TOTAL_CAPITAL: ${{ secrets.TOTAL_CAPITAL }}
+          FORCE_RUN: ${{ steps.market.outputs.force }}
         run: python bot.py
 
       - name: Save memory
