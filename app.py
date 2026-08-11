@@ -199,16 +199,7 @@ def run_startup_verification():
         put_res = requests.put(url, headers=headers, json=test_payload, timeout=15)
 
         if put_res.status_code in [200, 201]:
-            msg = (
-                "✅ *تقرير جاهزية النظام والمحرك المطور (V2):*\n\n"
-                f"🕒 **توقيت الفحص:** `{now_cairo_formatted}`\n"
-                f"📦 **المستودع:** `{GITHUB_REPO}`\n"
-                "• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n"
-                "• **تحليل الأطر التراكمية (MTF):** *مفعل (1D + 15M)*\n"
-                "• **إدارة المخاطر الحركية (ATR):** *مفعلة*\n"
-                "• **إرسال التليجرام:** *متصل ومعتمد*\n\n"
-                "🚀 *البوت الذكي جاهز لبدء الجلسة باقتناصات متعددة الأطر!*"
-            )
+            msg = "✅ *تقرير جاهزية النظام والمحرك المطور (V2):*\n\n🕒 **توقيت الفحص:** `" + now_cairo_formatted + "`\n📦 **المستودع:** `" + GITHUB_REPO + "`\n• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n• **تحليل الأطر التراكمية (MTF):** *مفعل (1D + 15M)*\n• **إدارة المخاطر الحركية (ATR):** *مفعلة*\n• **إرسال التليجرام:** *متصل ومعتمد*\n\n🚀 *البوت الذكي جاهز لبدء الجلسة باقتناصات متعددة الأطر!*"
             logging.info("✅ تم إرسال تقرير جاهزية اليوم بنجاح!")
             send_telegram_direct(msg)
             save_json_local(DNA_FILE, dna_memory)
@@ -371,38 +362,20 @@ def track_active_trades(all_data):
                 dna_memory[stock] = dna
                 trade["recorded_win"] = True
 
-            msg = (
-                f"🎯 **تحديث هدف [الهدف الأول تحقق - ATR Plan]**\n\n"
-                f"📌 **السهم:** `{mb_name}`\n"
-                f"💵 **السعر الحالي:** {current_price} ج.م\n"
-                f"📊 **نسبة نجاح السهم التاريخية:** `{dna['win_rate']}%`\n\n"
-                f"✅ **الإجراءات المطلوبة:**\n"
-                f"1️⃣ بيع **40%** لتأمين الأرباح.\n"
-                f"2️⃣ رفع **وقف الخسارة** للمتبقي إلى سعر الدخول: `{trade['entry_price']} ج.م`."
-            )
+            msg = "🎯 **تحديث هدف [الهدف الأول تحقق - ATR Plan]**\n\n📌 **السهم:** `" + str(mb_name) + "`\n💵 **السعر الحالي:** " + str(current_price) + " ج.م\n📊 **نسبة نجاح السهم التاريخية:** `" + str(dna['win_rate']) + "%`\n\n✅ **الإجراءات المطلوبة:**\n1️⃣ بيع **40%** لتأمين الأرباح.\n2️⃣ رفع **وقف الخسارة** للمتبقي إلى سعر الدخول: `" + str(trade['entry_price']) + " ج.م`."
             send_telegram_direct(msg)
 
         elif trade.get("t1_hit") and not trade.get("t2_hit") and current_price >= trade["t2"]:
             trade["t2_hit"] = True
             trade["current_stop"] = trade["t1"]
             updated = True
-            msg = (
-                f"🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n"
-                f"📌 **السهم:** `{mb_name}`\n"
-                f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
-                f"✅ **الإجراءات المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `{trade['t1']} ج.م`."
-            )
+            msg = "🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n📌 **السهم:** `" + str(mb_name) + "`\n💵 **السعر الحالي:** " + str(current_price) + " ج.م\n\n✅ **الإجراءات المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `" + str(trade['t1']) + " ج.م`."
             send_telegram_direct(msg)
 
         elif trade.get("t2_hit") and not trade.get("t3_hit") and current_price >= trade["t3"]:
             trade["t3_hit"] = True
             updated = True
-            msg = (
-                f"🔥 **تحقيق أقصى هدف متوقع [الهدف الثالث]**\n\n"
-                f"📌 **السهم:** `{mb_name}`\n"
-                f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
-                f"✅ **الإجراءات:** بيع الكمية المتبقية بالكامل."
-            )
+            msg = "🔥 **تحقيق أقصى هدف متوقع [الهدف الثالث]**\n\n📌 **السهم:** `" + str(mb_name) + "`\n💵 **السعر الحالي:** " + str(current_price) + " ج.م\n\n✅ **الإجراءات:** بيع الكمية المتبقية بالكامل."
             send_telegram_direct(msg)
 
         elif current_price <= trade.get("current_stop", trade["stop_loss"]):
@@ -411,13 +384,8 @@ def track_active_trades(all_data):
                 dna["win_rate"] = round((dna["winning_trades"] / dna["total_trades"]) * 100, 1)
                 dna_memory[stock] = dna
 
-            msg = (
-                f"🛑 **تنبيه وقف الخسارة التأميني (ATR Stop)**\n\n"
-                f"📌 **السهم:** `{mb_name}`\n"
-                f"📉 **سعر الكسر:** {current_price} ج.م\n"
-                f"🛡️ **مستوى الستوب المفعل:** {trade.get('current_stop', trade['stop_loss'])} ج.م\n\n"
-                f"⚠️ **الإجراءات:** إغلاق المراكز المتبقية وتأمين المحفظة."
-            )
+            stop_price = trade.get('current_stop', trade['stop_loss'])
+            msg = "🛑 **تنبيه وقف الخسارة التأميني (ATR Stop)**\n\n📌 **السهم:** `" + str(mb_name) + "`\n📉 **سعر الكسر:** " + str(current_price) + " ج.م\n🛡️ **مستوى الستوب المفعل:** " + str(stop_price) + " ج.م\n\n⚠️ **الإجراءات:** إغلاق المراكز المتبقية وتأمين المحفظة."
             send_telegram_direct(msg)
             del active_trades[stock]
             updated = True
@@ -462,7 +430,8 @@ def run_end_of_day_summary(all_data):
         report += "📌 **تفاصيل الصفقات المفتوحة:**\n"
         for st, tr in active_trades.items():
             st_name = EGX33_SYMBOLS_MAP.get(st, st)
-            report += f"• `{st_name}` | الدخول: `{tr['entry_price']}` | الستوب الحالي: `{tr.get('current_stop', tr['stop_loss'])}`\n"
+            st_stop = tr.get('current_stop', tr['stop_loss'])
+            report += f"• `{st_name}` | الدخول: `{tr['entry_price']}` | الستوب الحالي: `{st_stop}`\n"
         report += "\n"
 
     if reports_log:
@@ -509,12 +478,15 @@ def run_pipeline():
                 save_file_to_github(ACTIVE_TRADES_FILE, active_trades, f"➕ Add active trade: {stock}")
 
                 daily_status = "مؤكد إيجابي 🟢" if data['is_daily_bullish'] else "تذبذب/محايد 🟡"
-                chg_val = round(data['change_pct'], 2)
-                rvol_val = round(data['rvol'], 2)
-                rsi_val = round(data['rsi'], 1)
+                chg_val = str(round(data['change_pct'], 2))
+                rvol_val = str(round(data['rvol'], 2))
+                rsi_val = str(round(data['rsi'], 1))
 
-                msg_lines = [
-                    f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n",
-                    f"📌 **السهم:** `{mb_name}`",
-                    f"💵 **سعر الدخول:** {data['close']} ج.م (+{chg_val}%)",
-           
+                msg = "🚀 **إشارة اقتناص فوري مطورة (" + str(eval_res['type']) + ")**\n\n"
+                msg += "📌 **السهم:** `" + str(mb_name) + "`\n"
+                msg += "💵 **سعر الدخول:** " + str(data['close']) + " ج.م (+" + chg_val + "%)\n"
+                msg += "📊 **السيولة:** " + rvol_val + "x | **RSI:** " + rsi_val + "\n"
+                msg += "🌐 **الاتجاه اليومي (1D):** " + daily_status + "\n\n"
+                msg += "🛡️ **خطة إدارة المخاطر والمحفظة (ATR Dynamic):**\n"
+                msg += "• **مؤشر التذبذب (ATR):** `" + str(plan['atr']) + " ج.م`\n"
+                msg += "• **وقف الخسارة المطور:** `" + str(pl
