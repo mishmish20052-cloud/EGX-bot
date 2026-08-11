@@ -1,1 +1,14 @@
-{}
+{
+  "PHAR": {
+    "entry_price": 166,
+    "stop_loss": 161.02,
+    "current_stop": 161.02,
+    "t1": 169.98,
+    "t2": 174.3,
+    "t3": 179.28,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false,
+    "recorded_win": false
+  }
+}
