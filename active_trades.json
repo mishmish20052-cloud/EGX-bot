@@ -1,0 +1,18 @@
+{
+  "SAUD": {
+    "entry_price": 22.75,
+    "entry_date": "2026-08-11",
+    "shares_total": 549,
+    "shares_stage1": 219,
+    "added": false,
+    "sl": 22.07,
+    "current_stop": 22.07,
+    "add_level": 23.11,
+    "t1": 23.3,
+    "t2": 23.89,
+    "t3": 24.57,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
+  }
+}
