@@ -199,7 +199,16 @@ def run_startup_verification():
         put_res = requests.put(url, headers=headers, json=test_payload, timeout=15)
 
         if put_res.status_code in [200, 201]:
-            msg = "✅ *تقرير جاهزية النظام والمحرك المطور (V2):*\n\n🕒 **توقيت الفحص:** `" + now_cairo_formatted + "`\n📦 **المستودع:** `" + GITHUB_REPO + "`\n• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n• **تحليل الأطر التراكمية (MTF):** *مفعل (1D + 15M)*\n• **إدارة المخاطر الحركية (ATR):** *مفعلة*\n• **إرسال التليجرام:** *متصل ومعتمد*\n\n🚀 *البوت الذكي جاهز لبدء الجلسة باقتناصات متعددة الأطر!*"
+            line1 = "✅ *تقرير جاهزية النظام والمحرك المطور (V2):*\n\n"
+            line2 = f"🕒 **توقيت الفحص:** `{now_cairo_formatted}`\n"
+            line3 = f"📦 **المستودع:** `{GITHUB_REPO}`\n"
+            line4 = "• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n"
+            line5 = "• **تحليل الأطر التراكمية (MTF):** *مفعل (1D + 15M)*\n"
+            line6 = "• **إدارة المخاطر الحركية (ATR):** *مفعلة*\n"
+            line7 = "• **إرسال التليجرام:** *متصل ومعتمد*\n\n"
+            line8 = "🚀 *البوت الذكي جاهز لبدء الجلسة باقتناصات متعددة الأطر!*"
+            
+            msg = line1 + line2 + line3 + line4 + line5 + line6 + line7 + line8
             logging.info("✅ تم إرسال تقرير جاهزية اليوم بنجاح!")
             send_telegram_direct(msg)
             save_json_local(DNA_FILE, dna_memory)
@@ -362,20 +371,20 @@ def track_active_trades(all_data):
                 dna_memory[stock] = dna
                 trade["recorded_win"] = True
 
-            msg = "🎯 **تحديث هدف [الهدف الأول تحقق - ATR Plan]**\n\n📌 **السهم:** `" + str(mb_name) + "`\n💵 **السعر الحالي:** " + str(current_price) + " ج.م\n📊 **نسبة نجاح السهم التاريخية:** `" + str(dna['win_rate']) + "%`\n\n✅ **الإجراءات المطلوبة:**\n1️⃣ بيع **40%** لتأمين الأرباح.\n2️⃣ رفع **وقف الخسارة** للمتبقي إلى سعر الدخول: `" + str(trade['entry_price']) + " ج.م`."
+            msg = f"🎯 **تحديث هدف [الهدف الأول تحقق - ATR Plan]**\n\n📌 **السهم:** `{mb_name}`\n💵 **السعر الحالي:** {current_price} ج.م\n📊 **نسبة نجاح السهم التاريخية:** `{dna['win_rate']}%`\n\n✅ **الإجراءات المطلوبة:**\n1️⃣ بيع **40%** لتأمين الأرباح.\n2️⃣ رفع **وقف الخسارة** للمتبقي إلى سعر الدخول: `{trade['entry_price']} ج.م`."
             send_telegram_direct(msg)
 
         elif trade.get("t1_hit") and not trade.get("t2_hit") and current_price >= trade["t2"]:
             trade["t2_hit"] = True
             trade["current_stop"] = trade["t1"]
             updated = True
-            msg = "🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n📌 **السهم:** `" + str(mb_name) + "`\n💵 **السعر الحالي:** " + str(current_price) + " ج.م\n\n✅ **الإجراءات المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `" + str(trade['t1']) + " ج.م`."
+            msg = f"🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n📌 **السهم:** `{mb_name}`\n💵 **السعر الحالي:** {current_price} ج.م\n\n✅ **الإجراءات المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `{trade['t1']} ج.م`."
             send_telegram_direct(msg)
 
         elif trade.get("t2_hit") and not trade.get("t3_hit") and current_price >= trade["t3"]:
             trade["t3_hit"] = True
             updated = True
-            msg = "🔥 **تحقيق أقصى هدف متوقع [الهدف الثالث]**\n\n📌 **السهم:** `" + str(mb_name) + "`\n💵 **السعر الحالي:** " + str(current_price) + " ج.م\n\n✅ **الإجراءات:** بيع الكمية المتبقية بالكامل."
+            msg = f"🔥 **تحقيق أقصى هدف متوقع [الهدف الثالث]**\n\n📌 **السهم:** `{mb_name}`\n💵 **السعر الحالي:** {current_price} ج.م\n\n✅ **الإجراءات:** بيع الكمية المتبقية بالكامل."
             send_telegram_direct(msg)
 
         elif current_price <= trade.get("current_stop", trade["stop_loss"]):
@@ -385,7 +394,7 @@ def track_active_trades(all_data):
                 dna_memory[stock] = dna
 
             stop_price = trade.get('current_stop', trade['stop_loss'])
-            msg = "🛑 **تنبيه وقف الخسارة التأميني (ATR Stop)**\n\n📌 **السهم:** `" + str(mb_name) + "`\n📉 **سعر الكسر:** " + str(current_price) + " ج.م\n🛡️ **مستوى الستوب المفعل:** " + str(stop_price) + " ج.م\n\n⚠️ **الإجراءات:** إغلاق المراكز المتبقية وتأمين المحفظة."
+            msg = f"🛑 **تنبيه وقف الخسارة التأميني (ATR Stop)**\n\n📌 **السهم:** `{mb_name}`\n📉 **سعر الكسر:** {current_price} ج.م\n🛡️ **مستوى الستوب المفعل:** {stop_price} ج.م\n\n⚠️ **الإجراءات:** إغلاق المراكز المتبقية وتأمين المحفظة."
             send_telegram_direct(msg)
             del active_trades[stock]
             updated = True
@@ -478,15 +487,15 @@ def run_pipeline():
                 save_file_to_github(ACTIVE_TRADES_FILE, active_trades, f"➕ Add active trade: {stock}")
 
                 daily_status = "مؤكد إيجابي 🟢" if data['is_daily_bullish'] else "تذبذب/محايد 🟡"
-                chg_val = str(round(data['change_pct'], 2))
-                rvol_val = str(round(data['rvol'], 2))
-                rsi_val = str(round(data['rsi'], 1))
+                chg_val = round(data['change_pct'], 2)
+                rvol_val = round(data['rvol'], 2)
+                rsi_val = round(data['rsi'], 1)
 
-                msg = "🚀 **إشارة اقتناص فوري مطورة (" + str(eval_res['type']) + ")**\n\n"
-                msg += "📌 **السهم:** `" + str(mb_name) + "`\n"
-                msg += "💵 **سعر الدخول:** " + str(data['close']) + " ج.م (+" + chg_val + "%)\n"
-                msg += "📊 **السيولة:** " + rvol_val + "x | **RSI:** " + rsi_val + "\n"
-                msg += "🌐 **الاتجاه اليومي (1D):** " + daily_status + "\n\n"
-                msg += "🛡️ **خطة إدارة المخاطر والمحفظة (ATR Dynamic):**\n"
-                msg += "• **مؤشر التذبذب (ATR):** `" + str(plan['atr']) + " ج.م`\n"
-                msg += "• **وقف الخسارة المطور:** `" + str(pl
+                part1 = f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n\n"
+                part2 = f"📌 **السهم:** `{mb_name}`\n"
+                part3 = f"💵 **سعر الدخول:** {data['close']} ج.م (+{chg_val}%)\n"
+                part4 = f"📊 **السيولة:** {rvol_val}x | **RSI:** {rsi_val}\n"
+                part5 = f"🌐 **الاتجاه اليومي (1D):** {daily_status}\n\n"
+                part6 = "🛡️ **خطة إدارة المخاطر والمحفظة (ATR Dynamic):**\n"
+                part7 = f"• **مؤشر التذبذب (ATR):** `{plan['atr']} ج.م`\n"
+            
