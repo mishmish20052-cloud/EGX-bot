@@ -30,5 +30,21 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "SKPC": {
+    "entry_price": 16.57,
+    "entry_date": "2026-08-11",
+    "shares_total": 754,
+    "shares_stage1": 301,
+    "added": false,
+    "sl": 16.07,
+    "current_stop": 16.07,
+    "add_level": 16.84,
+    "t1": 16.97,
+    "t2": 17.4,
+    "t3": 17.9,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
