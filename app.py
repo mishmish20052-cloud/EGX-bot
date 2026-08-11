@@ -145,11 +145,22 @@ def send_telegram_direct(message: str):
         logging.error(f"خطأ تليجرام: {e}")
 
 # ===========================================================
-# 3. دالة فحص الجاهزية عند الإقلاع (Startup Verification)
+# 3. دالة فحص الجاهزية عند الإقلاع (تُرسل مرة واحدة يومياً)
 # ===========================================================
 def run_startup_verification():
-    now_cairo = datetime.now(CAIRO_TZ).strftime('%Y-%m-%d %H:%M:%S')
-    logging.info("⚙️ بدء فحص جاهزية النظام والربط...")
+    now_cairo_dt = datetime.now(CAIRO_TZ)
+    today_str = now_cairo_dt.strftime('%Y-%m-%d')
+    now_cairo_formatted = now_cairo_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    dna_memory = load_json_local(DNA_FILE, {})
+    last_startup_date = dna_memory.get("_sys_meta", {}).get("last_startup_date", "")
+
+    # إذا تم إرسال التقرير اليوم بالفعل، نكتفي بالـ Logging دون إرسال تليجرام
+    if last_startup_date == today_str:
+        logging.info("ℹ️ تم إرسال تقرير جاهزية النظام لهذا اليوم مسبقاً.")
+        return True
+
+    logging.info("⚙️ بدء فحص جاهزية النظام والربط لليوم الجديد...")
 
     if not GITHUB_TOKEN or not GITHUB_REPO:
         msg = "⚠️ *تنبيه بدء التشغيل:*\nمتغيرات GitHub غير مكتملة."
@@ -174,12 +185,15 @@ def run_startup_verification():
         file_info = res.json()
         sha = file_info.get("sha")
 
-        current_data = load_json_local(DNA_FILE, {})
-        content_str = json.dumps(current_data, ensure_ascii=False, indent=2)
+        # تحديث تاريخ آخر إرسال لتقرير الإقلاع
+        if "_sys_meta" not in dna_memory: dna_memory["_sys_meta"] = {}
+        dna_memory["_sys_meta"]["last_startup_date"] = today_str
+        
+        content_str = json.dumps(dna_memory, ensure_ascii=False, indent=2)
         encoded_content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
 
         test_payload = {
-            "message": "system: v2 startup check",
+            "message": f"system: v2 daily startup check [{today_str}]",
             "content": encoded_content,
             "sha": sha
         }
@@ -189,16 +203,17 @@ def run_startup_verification():
         if put_res.status_code in [200, 201]:
             msg = (
                 "✅ *تقرير جاهزية النظام والمحرك المطور (V2):*\n\n"
-                f"🕒 **توقيت الفحص:** `{now_cairo}`\n"
+                f"🕒 **توقيت الفحص:** `{now_cairo_formatted}`\n"
                 f"📦 **المستودع:** `{GITHUB_REPO}`\n"
                 "• **الاتصال بـ GitHub:** *ناجح (200 OK)*\n"
                 "• **تحليل الأطر التراكمية (MTF):** *مفعل (1D + 15M)*\n"
                 "• **إدارة المخاطر الحركية (ATR):** *مفعلة*\n"
                 "• **إرسال التليجرام:** *متصل ومعتمد*\n\n"
-                "🚀 *البوت الذكي جاهز تماماً باقتناصات متعددة الأطر!*"
+                "🚀 *البوت الذكي جاهز لبدء الجلسة باقتناصات متعددة الأطر!*"
             )
-            logging.info("✅ تم اختبار المحرك المطور بنجاح!")
+            logging.info("✅ تم إرسال تقرير جاهزية اليوم بنجاح!")
             send_telegram_direct(msg)
+            save_json_local(DNA_FILE, dna_memory)
             return True
         else:
             msg = f"❌ *خطأ في صلاحيات الكتابة:* `{put_res.status_code}`"
@@ -333,7 +348,7 @@ def evaluate_stock_with_dna(data):
     return {"type": "None", "score": score, "instant": False}
 
 # ===========================================================
-# 5. محرك متابعة وتحديث الصفقات المفتوحة مع تحديث الـ Win-Rate
+# 5. محرك متابعة وتحديث الصفقات المفتوحة
 # ===========================================================
 def track_active_trades(all_data):
     active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
@@ -363,7 +378,7 @@ def track_active_trades(all_data):
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"💵 **السعر الحالي:** {current_price} ج.م\n"
                 f"📊 **نسبة نجاح السهم التاريخية:** `{dna['win_rate']}%`\n\n"
-                f"✅ **الجراء المطلوبة:**\n"
+                f"✅ **الإجراءات المطلوبة:**\n"
                 f"1️⃣ بيع **40%** لتأمين الأرباح.\n"
                 f"2️⃣ رفع **وقف الخسارة** للمتبقي إلى سعر الدخول: `{trade['entry_price']} ج.م`."
             )
@@ -377,7 +392,7 @@ def track_active_trades(all_data):
                 f"🚀 **تحديث هدف [الهدف الثاني تحقق]**\n\n"
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
-                f"✅ **الجراء المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `{trade['t1']} ج.م`."
+                f"✅ **الإجراءات المطلوبة:** بيع **30%** إضافية ورفع الستوب إلى `{trade['t1']} ج.م`."
             )
             send_telegram_direct(msg)
 
@@ -388,7 +403,7 @@ def track_active_trades(all_data):
                 f"🔥 **تحقيق أقصى هدف متوقع [الهدف الثالث]**\n\n"
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"💵 **السعر الحالي:** {current_price} ج.م\n\n"
-                f"✅ **الجراء:** بيع الكمية المتبقية بالكامل."
+                f"✅ **الإجراءات:** بيع الكمية المتبقية بالكامل."
             )
             send_telegram_direct(msg)
 
@@ -403,7 +418,7 @@ def track_active_trades(all_data):
                 f"📌 **السهم:** `{mb_name}`\n"
                 f"📉 **سعر الكسر:** {current_price} ج.م\n"
                 f"🛡️ **مستوى الستوب المفعل:** {trade.get('current_stop', trade['stop_loss'])} ج.م\n\n"
-                f"⚠️ **الجراء:** إغلاق المراكز المتبقية وتأمين المحفظة."
+                f"⚠️ **الإجراءات:** إغلاق المراكز المتبقية وتأمين المحفظة."
             )
             send_telegram_direct(msg)
             del active_trades[stock]
@@ -416,12 +431,14 @@ def track_active_trades(all_data):
         save_file_to_github(DNA_FILE, dna_memory, "🧠 Auto-update Win Rates in Stock DNA")
 
 # ===========================================================
-# 6. محرك التعلم الذاتي عند الإغلاق
+# 6. تقرير نهاية اليوم والتكيف الذاتي (EOD Report)
 # ===========================================================
-def run_deep_learning_analysis(all_data):
+def run_end_of_day_summary(all_data):
     dna_memory = load_json_local(DNA_FILE, {})
-    reports_log = []
+    active_trades = load_json_local(ACTIVE_TRADES_FILE, {})
+    now_cairo_str = datetime.now(CAIRO_TZ).strftime('%Y-%m-%d')
 
+    reports_log = []
     for sym, data in all_data.items():
         mb_name = EGX33_SYMBOLS_MAP.get(sym, sym)
         dna = dna_memory.get(sym, get_stock_dna(sym))
@@ -439,10 +456,25 @@ def run_deep_learning_analysis(all_data):
     save_json_local(DNA_FILE, dna_memory)
     save_file_to_github(DNA_FILE, dna_memory, "🧠 Auto-update Stock DNA")
 
+    # صياغة تقرير ختام الجلسة
+    report = f"📋 **تقرير نهاية الجلسة اليومي ({now_cairo_str})**\n\n"
+    report += f"📊 **عدد الأسهم المفحوصة:** `{len(all_data)}` سهم\n"
+    report += f"💼 **الصفقات النشطة المستمرة للغد:** `{len(active_trades)}` صفقة\n\n"
+
+    if active_trades:
+        report += "📌 **تفاصيل الصفقات المفتوحة:**\n"
+        for st, tr in active_trades.items():
+            st_name = EGX33_SYMBOLS_MAP.get(st, st)
+            report += f"• `{st_name}` | الدخول: `{tr['entry_price']}` | الستوب الحالي: `{tr.get('current_stop', tr['stop_loss'])}`\n"
+        report += "\n"
+
     if reports_log:
-        report = "🧠 **تكيّف الذاكرة الذاتية (V2 Adaptive Stock DNA)**\n\n"
-        report += "\n".join(reports_log[:8])
-        send_telegram_direct(report)
+        report += "🧠 **تعديلات الذاكرة والتكيف اليومي:**\n"
+        report += "\n".join(reports_log[:6])
+    else:
+        report += "🧠 **حالة الذاكرة:** مستقرة تماماً ولا تتطلب تعديلات معايير."
+
+    send_telegram_direct(report)
 
 # ===========================================================
 # 7. الدورة الرئيسية
@@ -460,6 +492,7 @@ def run_pipeline():
             all_data[stock] = data
             eval_res = evaluate_stock_with_dna(data)
 
+            # اقتناص فرصة جديدة
             if eval_res["instant"] and stock not in active_trades:
                 mb_name = EGX33_SYMBOLS_MAP.get(stock, stock)
                 plan = calculate_atr_portfolio_plan(data["close"], data["atr"], data["rsi"])
@@ -484,27 +517,4 @@ def run_pipeline():
                 msg = (
                     f"🚀 **إشارة اقتناص فوري مطورة ({eval_res['type']})**\n\n"
                     f"📌 **السهم:** `{mb_name}`\n"
-                    f"💵 **سعر الدخول:** {data['close']} ج.م (+{round(data['change_pct'], 2)}%)\n"
-                    f"📊 **السيولة:** {round(data['rvol'], 2)}x | **RSI:** {round(data['rsi'], 1)}\n"
-                    f"🌐 **الاتجاه اليومي (1D):** {daily_status}\n\n"
-                    f"🛡️ **خطة إدارة المخاطر والمحفظة (ATR Dynamic):**\n"
-                    f"• **مؤشر التذبذب (ATR):** `{plan['atr']} ج.م`\n"
-                    f"• **وقف الخسارة المطور:** `{plan['stop_loss']} ج.م`\n"
-                    f"• **الهدف 1:** `{plan['t1']} ج.م` (بيع 40% وارفع الستوب لسعر الدخول)\n"
-                    f"• **الهدف 2:** `{plan['t2']} ج.م` (بيع 30% وارفع الستوب للهدف 1)\n"
-                    f"• **الهدف 3:** `{plan['t3']} ج.م` (تتبع الأرباح للمتبقي)\n\n"
-                    f"💡 **حجم الصفقة المقترح:** {plan['position_size']}"
-                )
-                send_telegram_direct(msg)
-        time.sleep(0.4)
-
-    track_active_trades(all_data)
-
-    if now_cairo.hour == 14 and now_cairo.minute >= 15:
-        run_deep_learning_analysis(all_data)
-
-if __name__ == "__main__":
-    run_startup_verification()
-    run_pipeline()
-    sys.exit(0)
-    
+                    f"💵 **سعر الدخول:** {data['close']} ج
