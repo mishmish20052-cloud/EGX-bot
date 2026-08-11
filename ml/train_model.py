@@ -21,95 +21,119 @@ STOCKS = [
     "EFIH.CA","ETEL.CA","RACC.CA","EGAS.CA","ETRS.CA","IFAP.CA","ORAS.CA"
 ]
 
-# 🆕 12 ميزة (9 قديمة + 3 جديدة متوافقة مع البوت)
-FEATURES = ["rsi","macd_pct","macd_hist_pct","close_vs_ema25",
-            "close_vs_ema50","atr_pct","stoch_k","is_green","dow",
-            "close_vs_ema200","bb_pos","adx"]
+FEATURES = ["rs_5d","rs_20d","rs_60d","momentum_60d","reversal_5d",
+            "vol_zscore_20","vol_zscore_5","volatility_20","atr_pct","market_regime"]
 
 HORIZON = 5
 TARGET_PCT = 1.5
 MAX_DD_PCT = 5.0
 
-def compute_features(df):
-    close = df["Close"]; high = df["High"]; low = df["Low"]; opn = df["Open"]
+def get_market_regime_series(idx):
+    """حساب حالة السوق لكل يوم تاريخياً"""
+    try:
+        egx = yf.download("EGX30.CA", period="5y", interval="1d",
+                          auto_adjust=True, progress=False)
+        if egx is None or len(egx) < 200:
+            egx = yf.download("^EGX30", period="5y", interval="1d",
+                              auto_adjust=True, progress=False)
+        if isinstance(egx.columns, pd.MultiIndex):
+            egx.columns = egx.columns.get_level_values(0)
+        c = egx["Close"]
+        sma50 = c.rolling(50).mean()
+        sma200 = c.rolling(200).mean()
+        regime = pd.Series(1, index=egx.index)  # Sideways = 1
+        regime[(c > sma50) & (sma50 > sma200)] = 2  # Bull = 2
+        regime[(c < sma50) & (sma50 < sma200)] = 0  # Bear = 0
+        return regime.reindex(idx, method="ffill").fillna(1)
+    except Exception as e:
+        logging.error(f"Market regime error: {e}")
+        return pd.Series(1, index=idx)
+
+def compute_smart_features(df, regime_series):
+    c = df["Close"]; h = df["High"]; l = df["Low"]; v = df["Volume"]
     f = pd.DataFrame(index=df.index)
 
-    # RSI
-    delta = close.diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
-    ag = gain.ewm(alpha=1/14, adjust=False).mean()
-    al = loss.ewm(alpha=1/14, adjust=False).mean()
-    f["rsi"] = 100 - 100 / (1 + ag / al.replace(0, np.nan))
+    # 🏆 القوة النسبية (Relative Strength)
+    f["rs_5d"]  = c.pct_change(5)  * 100
+    f["rs_20d"] = c.pct_change(20) * 100
+    f["rs_60d"] = c.pct_change(60) * 100
 
-    # MACD
-    ema12 = close.ewm(span=12, adjust=False).mean()
-    ema26 = close.ewm(span=26, adjust=False).mean()
-    macd = ema12 - ema26
-    signal = macd.ewm(span=9, adjust=False).mean()
-    f["macd_pct"] = macd / close * 100
-    f["macd_hist_pct"] = (macd - signal) / close * 100
+    # 🏆 Momentum و Reversal
+    f["momentum_60d"] = c.pct_change(60) * 100
+    f["reversal_5d"]  = -c.pct_change(5) * 100  # سالب لأن الانعكاس = الشراء بعد الهبوط
 
-    # EMAs
-    f["close_vs_ema25"] = (close - close.ewm(span=25, adjust=False).mean()) / close * 100
-    f["close_vs_ema50"] = (close - close.ewm(span=50, adjust=False).mean()) / close * 100
-    f["close_vs_ema200"] = (close - close.ewm(span=200, adjust=False).mean()) / close * 100
+    # 🏆 Volume Z-Score (شذوذ أحجام التداول)
+    v_mean20 = v.rolling(20).mean(); v_std20 = v.rolling(20).std()
+    v_mean5  = v.rolling(5).mean();  v_std5  = v.rolling(5).std()
+    f["vol_zscore_20"] = (v - v_mean20) / v_std20.replace(0, np.nan)
+    f["vol_zscore_5"]  = (v - v_mean5)  / v_std5.replace(0, np.nan)
 
-    # ATR
-    tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
-    f["atr_pct"] = tr.ewm(alpha=1/14, adjust=False).mean() / close * 100
+    # 🏆 التقلب 20 يوم
+    f["volatility_20"] = c.pct_change().rolling(20).std() * 100
 
-    # Stochastic
-    l14 = low.rolling(14).min(); h14 = high.rolling(14).max()
-    f["stoch_k"] = (close - l14) / (h14 - l14).replace(0, np.nan) * 100
+    # 🏆 ATR%
+    tr = pd.concat([h-l, (h-c.shift()).abs(), (l-c.shift()).abs()], axis=1).max(axis=1)
+    f["atr_pct"] = tr.ewm(alpha=1/14, adjust=False).mean() / c * 100
 
-    # 🆕 Bollinger Position (0-1)
-    mid = close.rolling(20).mean()
-    sd = close.rolling(20).std()
-    up = mid + 2*sd; lo = mid - 2*sd
-    f["bb_pos"] = (close - lo) / (up - lo).replace(0, np.nan)
+    # 🏆 حالة السوق (ميزة خارجية)
+    f["market_regime"] = regime_series.reindex(df.index).fillna(1)
 
-    # 🆕 ADX (قوة الاتجاه)
-    up_move = high.diff(); down_move = -low.diff()
-    plus_dm = pd.Series(np.where((up_move > down_move) & (up_move > 0), up_move, 0.0), index=df.index)
-    minus_dm = pd.Series(np.where((down_move > up_move) & (down_move > 0), down_move, 0.0), index=df.index)
-    atr14 = tr.ewm(alpha=1/14, adjust=False).mean()
-    plus_di = 100 * plus_dm.ewm(alpha=1/14, adjust=False).mean() / atr14.replace(0, np.nan)
-    minus_di = 100 * minus_dm.ewm(alpha=1/14, adjust=False).mean() / atr14.replace(0, np.nan)
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-    f["adx"] = dx.ewm(alpha=1/14, adjust=False).mean()
-
-    f["is_green"] = (close > opn).astype(int)
-    f["dow"] = df.index.dayofweek
     return f
 
 def make_labels(df):
-    close = df["Close"]; low = df["Low"]
-    future_close = close.shift(-HORIZON)
-    future_min = low.rolling(HORIZON).min().shift(-HORIZON)
-    profit = future_close >= close * (1 + TARGET_PCT/100)
-    safe = future_min >= close * (1 - MAX_DD_PCT/100)
+    c = df["Close"]; l = df["Low"]
+    future_close = c.shift(-HORIZON)
+    future_min = l.rolling(HORIZON).min().shift(-HORIZON)
+    profit = future_close >= c * (1 + TARGET_PCT/100)
+    safe = future_min >= c * (1 - MAX_DD_PCT/100)
     return (profit & safe).astype(int)
 
 def main():
-    logging.info("🚀 بدء التدريب الاحترافي V3...")
+    logging.info("🚀 بدء V4 - Smart Features...")
     tr_x, tr_y, te_x, te_y = [], [], [], []
+
+    # تحميل EGX30 مرة واحدة (محسّن)
+    logging.info("📥 تحميل EGX30 لحساب Market Regime...")
+    egx_regime_base = None
+    try:
+        egx = yf.download("EGX30.CA", period="5y", interval="1d",
+                          auto_adjust=True, progress=False)
+        if egx is None or len(egx) < 200:
+            egx = yf.download("^EGX30", period="5y", interval="1d",
+                              auto_adjust=True, progress=False)
+        if isinstance(egx.columns, pd.MultiIndex):
+            egx.columns = egx.columns.get_level_values(0)
+        c = egx["Close"]
+        sma50 = c.rolling(50).mean()
+        sma200 = c.rolling(200).mean()
+        egx_regime_base = pd.Series(1, index=egx.index)
+        egx_regime_base[(c > sma50) & (sma50 > sma200)] = 2
+        egx_regime_base[(c < sma50) & (sma50 < sma200)] = 0
+        logging.info(f"✅ EGX30: {len(egx)} يوم")
+    except Exception as e:
+        logging.error(f"فشل تحميل EGX30: {e}")
 
     for sym in STOCKS:
         try:
-            df = yf.download(sym, period="5y", interval="1d", auto_adjust=True, progress=False)
+            df = yf.download(sym, period="5y", interval="1d",
+                             auto_adjust=True, progress=False)
             if df is None or len(df) < 300:
                 logging.warning(f"⚠️ {sym}: بيانات غير كافية")
                 continue
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
-            f = compute_features(df)
+            # محاذاة regime مع تواريخ السهم
+            if egx_regime_base is not None:
+                regime = egx_regime_base.reindex(df.index, method="ffill").fillna(1)
+            else:
+                regime = pd.Series(1, index=df.index)
+
+            f = compute_smart_features(df, regime)
             y = make_labels(df)
             data = f.join(y.rename("label")).dropna()
             if len(data) < 100: continue
 
-            # 🛡️ تقسيم زمني مع Purge لمنع تسريب البيانات
             cut = int(len(data) * 0.8)
             tr = data.iloc[:cut].iloc[:-HORIZON]
             te = data.iloc[cut:]
@@ -129,43 +153,54 @@ def main():
     w = compute_sample_weight("balanced", y_tr)
 
     model = HistGradientBoostingClassifier(
-        max_iter=250, learning_rate=0.05, max_depth=5,
-        min_samples_leaf=20, l2_regularization=1.0, random_state=42)
+        max_iter=300, learning_rate=0.05, max_depth=6,
+        min_samples_leaf=25, l2_regularization=1.5, random_state=42)
     model.fit(X_tr, y_tr, sample_weight=w)
 
-    pred = model.predict(X_te)
     proba = model.predict_proba(X_te)[:, 1]
 
-    acc = accuracy_score(y_te, pred)
-    logging.info(f"🎯 عند عتبة 0.5 => Acc {acc*100:.1f}% | Prec {precision_score(y_te, pred, zero_division=0)*100:.1f}% | Rec {recall_score(y_te, pred, zero_division=0)*100:.1f}%")
-
-    # 🎯 ضبط العتبة الذكي: أعلى Precision مع Recall >= 15%
-    best_t, best_p = 0.5, 0.0
+    # 🎯 اختبار جميع العتبات
+    logging.info("=" * 60)
+    logging.info("📊 نتائج العتبات المختلفة:")
+    logging.info("=" * 60)
     thresholds = {}
-    for t in [0.5, 0.55, 0.6, 0.65, 0.7, 0.75]:
+    best_t, best_score = 0.5, -1
+    for t in [0.45, 0.5, 0.55, 0.6, 0.65, 0.7]:
         p_t = (proba >= t).astype(int)
-        prec_t = precision_score(y_te, p_t, zero_division=0)
-        rec_t = recall_score(y_te, p_t, zero_division=0)
-        thresholds[str(t)] = {"precision": round(prec_t, 3), "recall": round(rec_t, 3)}
-        logging.info(f"عتبة {t}: Precision {prec_t*100:.1f}% | Recall {rec_t*100:.1f}%")
-        if rec_t >= 0.15 and prec_t > best_p:
-            best_p = prec_t; best_t = t
+        prec = precision_score(y_te, p_t, zero_division=0)
+        rec = recall_score(y_te, p_t, zero_division=0)
+        f1 = f1_score(y_te, p_t, zero_division=0)
+        thresholds[str(t)] = {"precision": round(prec, 3), "recall": round(rec, 3), "f1": round(f1, 3)}
+        logging.info(f"عتبة {t}: Prec {prec*100:5.1f}% | Rec {rec*100:5.1f}% | F1 {f1*100:5.1f}%")
+        # أفضل عتبة: F1 عالٍ مع Precision لا تقل عن 40%
+        if prec >= 0.40 and f1 > best_score:
+            best_score = f1; best_t = t
 
     final_pred = (proba >= best_t).astype(int)
     f_acc = accuracy_score(y_te, final_pred)
     f_prec = precision_score(y_te, final_pred, zero_division=0)
     f_rec = recall_score(y_te, final_pred, zero_division=0)
     f_f1 = f1_score(y_te, final_pred, zero_division=0)
-    logging.info(f"🏆 العتبة المثلى {best_t}: Prec {f_prec*100:.1f}% | Rec {f_rec*100:.1f}% | F1 {f_f1*100:.1f}%")
 
-    # أهمية الميزات
-    imp = permutation_importance(model, X_te, y_te, n_repeats=5, random_state=42)
-    importance = dict(sorted(zip(FEATURES, imp.importances_mean), key=lambda x: x[1], reverse=True))
+    logging.info("=" * 60)
+    logging.info(f"🏆 العتبة المختارة {best_t}:")
+    logging.info(f"   Accuracy : {f_acc*100:.1f}%")
+    logging.info(f"   Precision: {f_prec*100:.1f}%  ← الأهم")
+    logging.info(f"   Recall   : {f_rec*100:.1f}%")
+    logging.info(f"   F1 Score : {f_f1*100:.1f}%")
+    logging.info("=" * 60)
+
+    # Feature importance
+    try:
+        imp = permutation_importance(model, X_te, y_te, n_repeats=5, random_state=42)
+        importance = dict(sorted(zip(FEATURES, imp.importances_mean), key=lambda x: x[1], reverse=True))
+    except Exception:
+        importance = {k: round(v, 3) for k, v in zip(FEATURES, model.feature_importances_)}
 
     joblib.dump(model, "ml/egx_model.joblib")
     meta = {
         "trained_at": datetime.utcnow().isoformat(),
-        "version": "V3",
+        "version": "V4 - Smart Features",
         "accuracy": round(f_acc, 3),
         "precision": round(f_prec, 3),
         "recall": round(f_rec, 3),
@@ -175,11 +210,11 @@ def main():
         "samples": int(len(X_tr) + len(X_te)),
         "positive_rate": round(float(y_tr.mean()), 3),
         "features": FEATURES,
-        "importance": {k: round(v, 3) for k, v in importance.items()}
+        "importance": {k: round(float(v), 3) for k, v in importance.items()}
     }
     with open("ml/model_meta.json", "w") as fh:
         json.dump(meta, fh, indent=2)
-    logging.info("💾 تم حفظ النموذج V3!")
+    logging.info("💾 تم حفظ V4!")
 
 if __name__ == "__main__":
     main()
