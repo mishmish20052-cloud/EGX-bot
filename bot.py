@@ -5,8 +5,8 @@ import requests
 
 logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+BOT_TOKEN = os.environ.get("8222819132:AAFmMjXCVnUFU8JUEcsujHKVjdmrJ1_zzPg", "")
+CHAT_ID = os.environ.get("5418506244", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "unknown")
 TOTAL_CAPITAL = os.environ.get("TOTAL_CAPITAL", "MISSING")
 
