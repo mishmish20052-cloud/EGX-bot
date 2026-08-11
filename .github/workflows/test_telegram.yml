@@ -1,0 +1,45 @@
+name: Test Telegram
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Send test message
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          import os, requests, json
+          token = os.environ.get('TOKEN', '')
+          chat = os.environ.get('CHAT', '')
+          print('TOKEN length:', len(token))
+          print('CHAT:', chat)
+          if not token:
+              print('ERROR: No TELEGRAM_BOT_TOKEN in secrets!')
+              exit(1)
+          if not chat:
+              print('ERROR: No TELEGRAM_CHAT_ID in secrets!')
+              exit(1)
+          r = requests.post(
+              f'https://api.telegram.org/bot{token}/sendMessage',
+              json={'chat_id': chat, 'text': '✅ EGX Bot Test - Success!'},
+              timeout=15
+          )
+          print('HTTP Status:', r.status_code)
+          print('Response:', r.text)
+          if r.status_code != 200:
+              exit(1)
+          "
