@@ -1,0 +1,6 @@
+requests
+tradingview-ta
+pandas
+numpy
+scikit-learn
+joblib
