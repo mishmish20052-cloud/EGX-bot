@@ -43,5 +43,41 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0
+  },
+  "EGAL": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "RMDA": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "OLFI": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "PHDC": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
   }
 }
