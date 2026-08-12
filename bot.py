@@ -24,15 +24,16 @@ TRADES_FILE = "active_trades.json"
 STATS_FILE = "daily_stats.json"
 
 TOTAL_CAPITAL = float(os.environ.get("TOTAL_CAPITAL", "50000"))
-RISK_PCT = 0.015             # ✅ مخاطرة قياسية 1.5% (كما اقترحت)
-STOP_MIN_PCT = 0.02          # ✅ ستوب لا يضيق عن 2% (يتنفس)
-STOP_MAX_PCT = 0.06          # ✅ ستوب لا يتجاوز 6%
-MAX_POSITION_WEIGHT = 25.0
-MAX_TOTAL_EXPOSURE = 90.0
-SCALE_IN_PCT = 0.40          # ✅ 40% جس نبض
+RISK_PCT = 0.015             # مخاطرة قياسية 1.5%
+STOP_MIN_PCT = 0.02          # ستوب لا يضيق عن 2%
+STOP_MAX_PCT = 0.06          # ستوب لا يتجاوز 6%
+MAX_POSITION_WEIGHT = 25.0   # أقصى 25% للصفقة
+MAX_TOTAL_EXPOSURE = 90.0    # أقصى 90% مستثمر
+SCALE_IN_PCT = 0.40          # 40% جس نبض
 TIME_STOP_DAYS = 5
 MIN_VOLUME = 50000
 
+# 🕌 أسهم EGX33 المتوافقة مع الشريعة
 SHARIA_STOCKS = {
     "ADIB": ("مصرف أبوظبي الإسلامي", "FINANCIAL"),
     "SAUD": ("مصرف البركة", "FINANCIAL"),
@@ -71,6 +72,9 @@ SHARIA_STOCKS = {
 STOCKS = list(SHARIA_STOCKS.keys())
 DEFENSIVE = {"FOOD", "HEALTHCARE", "TELECOM"}
 
+# ===========================================================
+# 💾 الذاكرة والتليجرام
+# ===========================================================
 def load_json_local(p, d=None):
     if d is None: d = {}
     if os.path.exists(p):
@@ -119,6 +123,9 @@ def get_dna(sym):
     return mem.get(sym, {"min_rvol": 0.85, "min_score": 60, "rsi_min": 38, "rsi_max": 76,
                          "total_trades": 0, "winning_trades": 0, "win_rate": 100.0})
 
+# ===========================================================
+# 🌍 حالة السوق (EGX30) - محصّنة ضد الفشل
+# ===========================================================
 def market_regime():
     for sym in ["EGX30", "EGX30.CA", "^EGX30", "TMGH"]:
         try:
@@ -144,6 +151,9 @@ def market_regime():
             continue
     return {"type": "UNKNOWN 🟡", "mult": 1.0, "max_trades": 3, "risk": "MEDIUM", "chg": 0}
 
+# ===========================================================
+# 📊 جلب البيانات (MTF: يومي + 15 دقيقة)
+# ===========================================================
 def fetch(stock):
     try:
         h15 = TA_Handler(symbol=stock, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_15_MINUTES)
@@ -175,6 +185,9 @@ def fetch(stock):
         "bull1d": c1 >= e50d,
     }
 
+# ===========================================================
+# 🎯 التقييم (قواعد ذكية + DNA)
+# ===========================================================
 def evaluate(d, dna, regime):
     if d["volume"] < MIN_VOLUME: return None
     if d["chg"] >= 8.5: return None
@@ -208,8 +221,10 @@ def trade_invested(t):
     sh = t.get("shares_total", 0) if t.get("added") else t.get("shares_stage1", 0)
     return c * sh
 
+# ===========================================================
+# 💼 خطة الصفقة (ستوب متنفس + أهداف V2 + دخول مرحلي)
+# ===========================================================
 def make_plan(c, atr, mult, deployed):
-    """🛡️ ستوب يتنفس (2-6%) + أهداف نظامك V2 + دخول مرحلي"""
     sd = min(max(1.5 * atr, c * STOP_MIN_PCT), c * STOP_MAX_PCT)
     sl = round(c - sd, 2)
     risk_amt = TOTAL_CAPITAL * RISK_PCT * max(mult, 0.5)
@@ -229,6 +244,9 @@ def make_plan(c, atr, mult, deployed):
         "weight": round(total * c / TOTAL_CAPITAL * 100, 1),
     }
 
+# ===========================================================
+# 🔄 متابعة الصفقات + DNA
+# ===========================================================
 def track(all_data):
     trades = load_json_local(TRADES_FILE, {})
     dna_mem = load_json_local(DNA_FILE, {})
@@ -292,6 +310,9 @@ def bump_stat(key):
     d[key] = d.get(key, 0) + 1
     save_json_local(STATS_FILE, stats)
 
+# ===========================================================
+# 📋 التقارير
+# ===========================================================
 def morning_report(regime):
     stats = load_json_local(STATS_FILE, {})
     today = datetime.now(CAIRO).strftime("%Y-%m-%d")
@@ -300,7 +321,21 @@ def morning_report(regime):
     stats["_meta"] = {"report": today}
     save_json_local(STATS_FILE, stats)
 
-def eod_report(trades):
+def eod_adaptation(all_data):
+    """🧬 تكيف DNA اليومي: تعديل شرط السيولة حسب سلوك الجلسة"""
+    dna_mem = load_json_local(DNA_FILE, {})
+    reports = []
+    for sym, d in all_data.items():
+        dna = dna_mem.setdefault(sym, get_dna(sym))
+        if d["chg"] >= 3.0 and d["rvol"] < dna["min_rvol"]:
+            dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.08, 2))
+            reports.append(f"• `{SHARIA_STOCKS[sym][0]}`: خفض شرط السيولة إلى `{dna['min_rvol']}x`")
+        dna["learned_sessions"] = dna.get("learned_sessions", 0) + 1
+    save_json_local(DNA_FILE, dna_mem)
+    save_to_github(DNA_FILE, dna_mem, "DNA EOD adaptation")
+    return reports
+
+def eod_report(trades, all_data):
     now = datetime.now(CAIRO)
     if not (now.hour == 14 and now.minute >= 15): return
     stats = load_json_local(STATS_FILE, {})
@@ -313,9 +348,17 @@ def eod_report(trades):
         tot_l = sum(v.get("losses", 0) for k, v in stats.items() if k != "_meta")
         msg += f"\n\n📊 *ملخص الأسبوع:* ✅ {tot_w} | 🛑 {tot_l}"
     send_tg(msg)
+
+    adapt = eod_adaptation(all_data)
+    if adapt:
+        send_tg("🧬 *تكيف DNA اليومي*\n\n" + "\n".join(adapt[:5]))
+
     stats["_meta"] = stats.get("_meta", {}); stats["_meta"]["eod"] = today
     save_json_local(STATS_FILE, stats)
 
+# ===========================================================
+# 🚀 المحرك الرئيسي
+# ===========================================================
 def run():
     logging.info(f"🚀 بدء التشغيل - FORCE_RUN={FORCE_RUN}")
     regime = market_regime()
@@ -379,7 +422,7 @@ def run():
         time.sleep(0.35)
 
     track(all_data)
-    eod_report(trades)
+    eod_report(trades, all_data)
     save_to_github(TRADES_FILE, load_json_local(TRADES_FILE, {}), "trades sync")
     save_to_github(STATS_FILE, load_json_local(STATS_FILE, {}), "stats sync")
 
