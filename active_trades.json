@@ -174,5 +174,21 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "RACC": {
+    "entry_price": 10.2,
+    "entry_date": "2026-08-12",
+    "shares_total": 1225,
+    "shares_stage1": 490,
+    "added": false,
+    "sl": 9.89,
+    "current_stop": 9.89,
+    "add_level": 10.36,
+    "t1": 10.44,
+    "t2": 10.71,
+    "t3": 11.02,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
