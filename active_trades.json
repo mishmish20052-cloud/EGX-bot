@@ -142,5 +142,21 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "ORWE": {
+    "entry_price": 26.5,
+    "entry_date": "2026-08-12",
+    "shares_total": 471,
+    "shares_stage1": 188,
+    "added": false,
+    "sl": 25.7,
+    "current_stop": 25.7,
+    "add_level": 26.92,
+    "t1": 27.14,
+    "t2": 27.82,
+    "t3": 28.62,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
