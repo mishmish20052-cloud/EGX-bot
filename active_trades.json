@@ -62,5 +62,21 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "EFIH": {
+    "entry_price": 23.7,
+    "entry_date": "2026-08-12",
+    "shares_total": 527,
+    "shares_stage1": 210,
+    "added": false,
+    "sl": 22.99,
+    "current_stop": 22.99,
+    "add_level": 24.08,
+    "t1": 24.27,
+    "t2": 24.88,
+    "t3": 25.6,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
