@@ -1,0 +1,47 @@
+{
+  "SAUD": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "AMOC": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "SKPC": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "JUFO": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  },
+  "EFIH": {
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
+    "winning_trades": 0,
+    "win_rate": 100.0
+  }
+}
