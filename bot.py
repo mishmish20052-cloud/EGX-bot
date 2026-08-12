@@ -449,4 +449,11 @@ def run():
 
     eod_report(trades, all_data)
     save_to_github(TRADES_FILE, load_json_local(TRADES_FILE, {}), "trades sync")
-    save_to_github(STATS_FILE,
+    save_to_github(STATS_FILE, load_json_local(STATS_FILE, {}), "stats sync")
+
+    if FORCE_RUN:
+        send_tg(f"✅ *اكتمل الفحص*\n\n💓 دورات النبض: {PULSE_CYCLES}\n📊 فحصت {len(all_data)} سهم\n🎯 إشارات جديدة: {total_signals}\n💼 مفتوحة: {len(trades)}\n💵 مستثمر (ورقي): {deployed:,.0f} ج.م ({deployed/TOTAL_CAPITAL*100:.0f}%)")
+
+if __name__ == "__main__":
+    run()
+    sys.exit(0)
