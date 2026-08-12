@@ -94,5 +94,21 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "RMDA": {
+    "entry_price": 6.58,
+    "entry_date": "2026-08-12",
+    "shares_total": 1899,
+    "shares_stage1": 759,
+    "added": false,
+    "sl": 6.38,
+    "current_stop": 6.38,
+    "add_level": 6.69,
+    "t1": 6.74,
+    "t2": 6.91,
+    "t3": 7.11,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
