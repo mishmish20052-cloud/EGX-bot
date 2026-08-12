@@ -19,17 +19,21 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 FORCE_RUN = os.environ.get("FORCE_RUN", "0") == "1"
 
+# 📝 وضع القياس: True = بلا حد للإشارات (أسبوع القياس الورقي)
+# ⚠️ عند الانتقال للتداول الحقيقي: غيّرها إلى False
+MEASUREMENT_MODE = True
+
 DNA_FILE = "stocks_dna_memory.json"
 TRADES_FILE = "active_trades.json"
 STATS_FILE = "daily_stats.json"
 
 TOTAL_CAPITAL = float(os.environ.get("TOTAL_CAPITAL", "50000"))
-RISK_PCT = 0.015             # مخاطرة قياسية 1.5%
-STOP_MIN_PCT = 0.02          # ستوب لا يضيق عن 2%
-STOP_MAX_PCT = 0.06          # ستوب لا يتجاوز 6%
-MAX_POSITION_WEIGHT = 25.0   # أقصى 25% للصفقة
-MAX_TOTAL_EXPOSURE = 90.0    # أقصى 90% مستثمر
-SCALE_IN_PCT = 0.40          # 40% جس نبض
+RISK_PCT = 0.015
+STOP_MIN_PCT = 0.02
+STOP_MAX_PCT = 0.06
+MAX_POSITION_WEIGHT = 25.0
+MAX_TOTAL_EXPOSURE = 90.0
+SCALE_IN_PCT = 0.40
 TIME_STOP_DAYS = 5
 MIN_VOLUME = 50000
 
@@ -124,7 +128,7 @@ def get_dna(sym):
                          "total_trades": 0, "winning_trades": 0, "win_rate": 100.0})
 
 # ===========================================================
-# 🌍 حالة السوق (EGX30) - محصّنة ضد الفشل
+# 🌍 حالة السوق
 # ===========================================================
 def market_regime():
     for sym in ["EGX30", "EGX30.CA", "^EGX30", "TMGH"]:
@@ -152,7 +156,7 @@ def market_regime():
     return {"type": "UNKNOWN 🟡", "mult": 1.0, "max_trades": 3, "risk": "MEDIUM", "chg": 0}
 
 # ===========================================================
-# 📊 جلب البيانات (MTF: يومي + 15 دقيقة)
+# 📊 جلب البيانات
 # ===========================================================
 def fetch(stock):
     try:
@@ -186,7 +190,7 @@ def fetch(stock):
     }
 
 # ===========================================================
-# 🎯 التقييم (قواعد ذكية + DNA)
+# 🎯 التقييم (مع نقاط الجودة)
 # ===========================================================
 def evaluate(d, dna, regime):
     if d["volume"] < MIN_VOLUME: return None
@@ -222,7 +226,7 @@ def trade_invested(t):
     return c * sh
 
 # ===========================================================
-# 💼 خطة الصفقة (ستوب متنفس + أهداف V2 + دخول مرحلي)
+# 💼 خطة الصفقة
 # ===========================================================
 def make_plan(c, atr, mult, deployed):
     sd = min(max(1.5 * atr, c * STOP_MIN_PCT), c * STOP_MAX_PCT)
@@ -230,9 +234,11 @@ def make_plan(c, atr, mult, deployed):
     risk_amt = TOTAL_CAPITAL * RISK_PCT * max(mult, 0.5)
     shares_risk = math.floor(risk_amt / sd)
     cap_weight = math.floor((TOTAL_CAPITAL * MAX_POSITION_WEIGHT / 100) / c)
-    remaining = (TOTAL_CAPITAL * MAX_TOTAL_EXPOSURE / 100) - deployed
-    cap_cash = math.floor(remaining / c) if remaining > 0 else 0
-    total = min(shares_risk, cap_weight, cap_cash)
+    total = min(shares_risk, cap_weight)
+    if not MEASUREMENT_MODE:
+        remaining = (TOTAL_CAPITAL * MAX_TOTAL_EXPOSURE / 100) - deployed
+        cap_cash = math.floor(remaining / c) if remaining > 0 else 0
+        total = min(total, cap_cash)
     if total < 1: return None
     stage1 = max(1, math.floor(total * SCALE_IN_PCT))
     return {
@@ -261,15 +267,14 @@ def track(all_data):
 
         days = (now.replace(tzinfo=None) - datetime.strptime(t["entry_date"], '%Y-%m-%d')).days
         if days >= TIME_STOP_DAYS and not t.get("t1_hit"):
-            send_tg(f"⏳ *إغلاق زمني*\n📌 `{name}` راكد {days} أيام - حرر رأس المال")
+            send_tg(f"⏳ *إغلاق زمني*\n📌 `{sym} - {name}` راكد {days} أيام - حرر رأس المال")
             del trades[sym]; updated = True; continue
 
-        # ➕ تأكيد الاتجاه: أضف الـ 60% المتبقية
         if not t.get("added") and not t.get("t1_hit") and price >= t.get("add_level", float("inf")):
             t["added"] = True
             updated = True
             rem = t.get("shares_total", 0) - t.get("shares_stage1", 0)
-            send_tg(f"✅ *تأكيد الاتجاه - إضافة*\n\n📌 `{name}` | 💵 {price}\n🛒 *أضف الـ60% المتبقية:* `{rem}` سهم\n🛑 الستوب يبقى: `{t.get('current_stop', t['sl'])}`")
+            send_tg(f"✅ *تأكيد الاتجاه - إضافة*\n\n📌 `{sym} - {name}` | 💵 {price}\n🛒 *أضف الـ60% المتبقية:* `{rem}` سهم\n🛑 الستوب يبقى: `{t.get('current_stop', t['sl'])}`")
 
         if not t.get("t1_hit") and price >= t["t1"]:
             t["t1_hit"] = True; t["current_stop"] = t["entry_price"]; updated = True
@@ -277,15 +282,15 @@ def track(all_data):
                 dna["winning_trades"] += 1; dna["total_trades"] += 1
                 dna["win_rate"] = round(dna["winning_trades"] / dna["total_trades"] * 100, 1)
                 t["recorded"] = True; bump_stat("wins")
-            send_tg(f"🎯 *T1 تحقق*\n📌 `{name}` | 💵 {price}\n✅ بع 40% وارفع الستوب للدخول `{t['entry_price']}`")
+            send_tg(f"🎯 *T1 تحقق*\n📌 `{sym} - {name}` | 💵 {price}\n✅ بع 40% وارفع الستوب للدخول `{t['entry_price']}`")
 
         elif t.get("t1_hit") and not t.get("t2_hit") and price >= t["t2"]:
             t["t2_hit"] = True; t["current_stop"] = t["t1"]; updated = True
-            send_tg(f"🚀 *T2 تحقق*\n📌 `{name}` | 💵 {price}\n✅ بع 30% وارفع الستوب لـ `{t['t1']}`")
+            send_tg(f"🚀 *T2 تحقق*\n📌 `{sym} - {name}` | 💵 {price}\n✅ بع 30% وارفع الستوب لـ `{t['t1']}`")
 
         elif t.get("t2_hit") and not t.get("t3_hit") and price >= t["t3"]:
             t["t3_hit"] = True; updated = True
-            send_tg(f"🔥 *T3 تحقق*\n📌 `{name}` | 💵 {price}\n✅ بع المتبقي بالكامل")
+            send_tg(f"🔥 *T3 تحقق*\n📌 `{sym} - {name}` | 💵 {price}\n✅ بع المتبقي بالكامل")
 
         elif price <= t.get("current_stop", t["sl"]):
             if not t.get("recorded"):
@@ -294,7 +299,7 @@ def track(all_data):
                 dna["min_score"] = min(95, dna.get("min_score", 60) + 3)
                 bump_stat("losses")
             stage_note = " (40% فقط - الخسارة محدودة 🛡️)" if not t.get("added") else ""
-            send_tg(f"🛑 *ستوب لوس*\n📌 `{name}` | 📉 كسر `{t.get('current_stop', t['sl'])}`{stage_note}")
+            send_tg(f"🛑 *ستوب لوس*\n📌 `{sym} - {name}` | 📉 كسر `{t.get('current_stop', t['sl'])}`{stage_note}")
             del trades[sym]; updated = True
 
     if updated:
@@ -317,19 +322,19 @@ def morning_report(regime):
     stats = load_json_local(STATS_FILE, {})
     today = datetime.now(CAIRO).strftime("%Y-%m-%d")
     if stats.get("_meta", {}).get("report") == today: return
-    send_tg(f"🌍 *تقرير الصباح*\n\n📊 EGX30: `{regime['chg']:+.2f}%`\n🎯 الحالة: `{regime['type']}`\n⚠️ المخاطرة: `{regime['risk']}`\n💼 أقصى صفقات اليوم: `{regime['max_trades']}`")
+    mode_note = "\n📝 *وضع القياس مفعل: رصد بلا حدود*" if MEASUREMENT_MODE else ""
+    send_tg(f"🌍 *تقرير الصباح*\n\n📊 EGX30: `{regime['chg']:+.2f}%`\n🎯 الحالة: `{regime['type']}`\n⚠️ المخاطرة: `{regime['risk']}`\n💼 أقصى صفقات اليوم: `{regime['max_trades']}`{mode_note}")
     stats["_meta"] = {"report": today}
     save_json_local(STATS_FILE, stats)
 
 def eod_adaptation(all_data):
-    """🧬 تكيف DNA اليومي: تعديل شرط السيولة حسب سلوك الجلسة"""
     dna_mem = load_json_local(DNA_FILE, {})
     reports = []
     for sym, d in all_data.items():
         dna = dna_mem.setdefault(sym, get_dna(sym))
         if d["chg"] >= 3.0 and d["rvol"] < dna["min_rvol"]:
             dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.08, 2))
-            reports.append(f"• `{SHARIA_STOCKS[sym][0]}`: خفض شرط السيولة إلى `{dna['min_rvol']}x`")
+            reports.append(f"• `{sym} - {SHARIA_STOCKS[sym][0]}`: خفض شرط السيولة إلى `{dna['min_rvol']}x`")
         dna["learned_sessions"] = dna.get("learned_sessions", 0) + 1
     save_json_local(DNA_FILE, dna_mem)
     save_to_github(DNA_FILE, dna_mem, "DNA EOD adaptation")
@@ -360,7 +365,7 @@ def eod_report(trades, all_data):
 # 🚀 المحرك الرئيسي
 # ===========================================================
 def run():
-    logging.info(f"🚀 بدء التشغيل - FORCE_RUN={FORCE_RUN}")
+    logging.info(f"🚀 بدء التشغيل - FORCE_RUN={FORCE_RUN} MEASUREMENT={MEASUREMENT_MODE}")
     regime = market_regime()
     logging.info(f"🌍 السوق: {regime['type']}")
 
@@ -384,17 +389,19 @@ def run():
     all_data = {}
     signals_count = 0
     deployed = sum(trade_invested(t) for t in trades.values())
+    max_trades = 999 if MEASUREMENT_MODE else regime["max_trades"]
 
     for sym in allowed:
         d = fetch(sym)
         if not d: continue
         all_data[sym] = d
 
-        if d["chg"] >= 4 and d["rvol"] >= 1.5 and sym not in trades:
-            send_tg(f"🚨 *حركة قوية + سيولة*\n📌 `{SHARIA_STOCKS[sym][0]}` | 📈 {d['chg']:+.1f}% | 🔊 {d['rvol']}x")
+        # 🚨 تنبيه حركة قوية (بدون شرط rvol)
+        if d["chg"] >= 4 and sym not in trades:
+            send_tg(f"🚨 *حركة قوية*\n📌 `{sym} - {SHARIA_STOCKS[sym][0]}` | 📈 {d['chg']:+.1f}%")
 
         res = evaluate(d, get_dna(sym), regime)
-        if res and sym not in trades and len(trades) < regime["max_trades"]:
+        if res and sym not in trades and len(trades) < max_trades:
             plan = make_plan(d["close"], d["atr1"], regime["mult"], deployed)
             if not plan:
                 logging.info(f"⛔ تخطي {sym}: لا توجد سيولة كافية")
@@ -407,16 +414,18 @@ def run():
             deployed += plan["stage1"] * d["close"]
             bump_stat("signals")
             signals_count += 1
+            paper_note = "\n📝 *صفقة ورقية - وضع القياس*" if MEASUREMENT_MODE else ""
             send_tg(
-                f"🚀 *{res['type']}*\n\n"
+                f"🚀 *{res['type']}*\n"
+                f"🎖️ الجودة: `{res['score']}/100`\n\n"
                 f"🌍 السوق: `{regime['type']}`\n"
-                f"📌 `{SHARIA_STOCKS[sym][0]}` ({SHARIA_STOCKS[sym][1]})\n"
+                f"📌 `{sym} - {SHARIA_STOCKS[sym][0]}` ({SHARIA_STOCKS[sym][1]})\n"
                 f"💵 دخول: `{d['close']}` | 📊 RSI: `{d['rsi15']:.0f}`\n\n"
                 f"🛒 *المرحلة 1 الآن (40%):* `{plan['stage1']}` سهم\n"
                 f"📦 الكمية الكلية: `{plan['total']}` سهم ({plan['weight']}%)\n"
                 f"➕ أضف 60% عند: `{plan['add_level']}`\n\n"
                 f"🛑 ستوب: `{plan['sl']}`\n"
-                f"🎯 T1 `{plan['t1']}` | T2 `{plan['t2']}` | T3 `{plan['t3']}`")
+                f"🎯 T1 `{plan['t1']}` | T2 `{plan['t2']}` | T3 `{plan['t3']}`{paper_note}")
             save_json_local(TRADES_FILE, trades)
             save_to_github(TRADES_FILE, trades, f"new trade {sym}")
         time.sleep(0.35)
@@ -427,7 +436,7 @@ def run():
     save_to_github(STATS_FILE, load_json_local(STATS_FILE, {}), "stats sync")
 
     if FORCE_RUN:
-        send_tg(f"✅ *اكتمل الفحص*\n\n📊 فحصت {len(all_data)} سهم\n🎯 إشارات جديدة: {signals_count}\n💼 مفتوحة: {len(trades)}\n💵 مستثمر: {deployed:,.0f} ج.م ({deployed/TOTAL_CAPITAL*100:.0f}%)")
+        send_tg(f"✅ *اكتمل الفحص*\n\n📊 فحصت {len(all_data)} سهم\n🎯 إشارات جديدة: {signals_count}\n💼 مفتوحة: {len(trades)}\n💵 مستثمر (ورقي): {deployed:,.0f} ج.م ({deployed/TOTAL_CAPITAL*100:.0f}%)")
 
 if __name__ == "__main__":
     run()
