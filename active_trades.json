@@ -110,5 +110,21 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "OLFI": {
+    "entry_price": 25.5,
+    "entry_date": "2026-08-12",
+    "shares_total": 490,
+    "shares_stage1": 196,
+    "added": false,
+    "sl": 24.74,
+    "current_stop": 24.74,
+    "add_level": 25.91,
+    "t1": 26.11,
+    "t2": 26.77,
+    "t3": 27.53,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
