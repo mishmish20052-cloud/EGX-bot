@@ -218,5 +218,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "ETRS": {
+    "entry_price": 10.87,
+    "entry_date": "2026-08-12",
+    "shares": 551,
+    "remaining": 551,
+    "sl": 10.54,
+    "current_stop": 10.54,
+    "t1": 11.13,
+    "t2": 11.41,
+    "t3": 11.74,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
