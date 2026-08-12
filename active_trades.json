@@ -20,7 +20,7 @@
     "entry_date": "2026-08-11",
     "shares_total": 1329,
     "shares_stage1": 531,
-    "added": false,
+    "added": true,
     "sl": 9.12,
     "current_stop": 9.12,
     "add_level": 9.55,
