@@ -1,1 +1,16 @@
-{}
+{
+  "ARCC": {
+    "entry_price": 73.5,
+    "entry_date": "2026-08-13",
+    "shares": 81,
+    "remaining": 81,
+    "sl": 71.3,
+    "current_stop": 71.3,
+    "t1": 75.26,
+    "t2": 77.17,
+    "t3": 79.38,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
+  }
+}
