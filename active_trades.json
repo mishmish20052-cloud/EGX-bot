@@ -124,5 +124,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "MCQE": {
+    "entry_price": 248.11,
+    "entry_date": "2026-08-13",
+    "shares": 24,
+    "remaining": 24,
+    "sl": 240.67,
+    "current_stop": 240.67,
+    "t1": 254.06,
+    "t2": 260.52,
+    "t3": 267.96,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
