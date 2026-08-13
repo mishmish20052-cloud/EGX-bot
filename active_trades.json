@@ -96,5 +96,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "EGAL": {
+    "entry_price": 334,
+    "entry_date": "2026-08-13",
+    "shares": 29,
+    "remaining": 29,
+    "sl": 323.98,
+    "current_stop": 323.98,
+    "t1": 342.02,
+    "t2": 350.7,
+    "t3": 360.72,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
