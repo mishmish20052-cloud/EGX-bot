@@ -26,5 +26,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "JUFO": {
+    "entry_price": 27.48,
+    "entry_date": "2026-08-13",
+    "shares": 363,
+    "remaining": 363,
+    "sl": 26.66,
+    "current_stop": 26.66,
+    "t1": 28.14,
+    "t2": 28.85,
+    "t3": 29.68,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
