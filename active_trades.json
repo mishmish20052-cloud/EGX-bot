@@ -40,5 +40,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "ORHD": {
+    "entry_price": 42.75,
+    "entry_date": "2026-08-13",
+    "shares": 233,
+    "remaining": 233,
+    "sl": 41.47,
+    "current_stop": 41.47,
+    "t1": 43.78,
+    "t2": 44.89,
+    "t3": 46.17,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
