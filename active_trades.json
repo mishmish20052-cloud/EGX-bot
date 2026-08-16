@@ -75,15 +75,16 @@
     "entry_price": 10.42,
     "entry_date": "2026-08-13",
     "shares": 959,
-    "remaining": 959,
+    "remaining": 576,
     "sl": 10.11,
-    "current_stop": 10.11,
+    "current_stop": 10.42,
     "t1": 10.67,
     "t2": 10.94,
     "t3": 11.25,
-    "t1_hit": false,
+    "t1_hit": true,
     "t2_hit": false,
-    "t3_hit": false
+    "t3_hit": false,
+    "recorded": true
   },
   "MASR": {
     "entry_price": 7.64,
