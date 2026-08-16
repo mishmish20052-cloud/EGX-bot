@@ -152,5 +152,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "MPCO": {
+    "entry_price": 2.19,
+    "entry_date": "2026-08-16",
+    "shares": 4566,
+    "remaining": 4566,
+    "sl": 2.12,
+    "current_stop": 2.12,
+    "t1": 2.24,
+    "t2": 2.3,
+    "t3": 2.37,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
