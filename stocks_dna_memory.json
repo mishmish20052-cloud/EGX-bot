@@ -304,8 +304,8 @@
     "min_score": 60,
     "rsi_min": 38,
     "rsi_max": 76,
-    "total_trades": 0,
-    "winning_trades": 0,
+    "total_trades": 1,
+    "winning_trades": 1,
     "win_rate": 100.0,
     "learned_sessions": 1
   },
