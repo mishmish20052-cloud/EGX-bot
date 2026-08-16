@@ -226,5 +226,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "TMGH": {
+    "entry_price": 98,
+    "entry_date": "2026-08-16",
+    "shares": 61,
+    "remaining": 61,
+    "sl": 95.06,
+    "current_stop": 95.06,
+    "t1": 100.35,
+    "t2": 102.89,
+    "t3": 105.83,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
