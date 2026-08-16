@@ -181,5 +181,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "MTIE": {
+    "entry_price": 9.59,
+    "entry_date": "2026-08-16",
+    "shares": 1042,
+    "remaining": 1042,
+    "sl": 9.3,
+    "current_stop": 9.3,
+    "t1": 9.82,
+    "t2": 10.07,
+    "t3": 10.36,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
