@@ -212,5 +212,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "CIRA": {
+    "entry_price": 39.38,
+    "entry_date": "2026-08-16",
+    "shares": 152,
+    "remaining": 152,
+    "sl": 38.2,
+    "current_stop": 38.2,
+    "t1": 40.33,
+    "t2": 41.35,
+    "t3": 42.53,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
