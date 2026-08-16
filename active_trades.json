@@ -167,5 +167,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "ATQA": {
+    "entry_price": 10.92,
+    "entry_date": "2026-08-16",
+    "shares": 549,
+    "remaining": 549,
+    "sl": 10.59,
+    "current_stop": 10.59,
+    "t1": 11.18,
+    "t2": 11.47,
+    "t3": 11.79,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
