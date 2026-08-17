@@ -227,5 +227,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "OCDI": {
+    "entry_price": 33.97,
+    "entry_date": "2026-08-17",
+    "shares": 176,
+    "remaining": 176,
+    "sl": 32.95,
+    "current_stop": 32.95,
+    "t1": 34.79,
+    "t2": 35.67,
+    "t3": 36.69,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
