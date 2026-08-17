@@ -100,21 +100,6 @@
     "t2_hit": false,
     "t3_hit": false
   },
-  "EGAL": {
-    "entry_price": 334,
-    "entry_date": "2026-08-13",
-    "shares": 29,
-    "remaining": 10,
-    "sl": 323.98,
-    "current_stop": 342.02,
-    "t1": 342.02,
-    "t2": 350.7,
-    "t3": 360.72,
-    "t1_hit": true,
-    "t2_hit": true,
-    "t3_hit": false,
-    "recorded": true
-  },
   "PHDC": {
     "entry_price": 15.24,
     "entry_date": "2026-08-13",
@@ -183,20 +168,6 @@
     "t1": 9.82,
     "t2": 10.07,
     "t3": 10.36,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
-  "ORWE": {
-    "entry_price": 26.55,
-    "entry_date": "2026-08-16",
-    "shares": 225,
-    "remaining": 225,
-    "sl": 25.75,
-    "current_stop": 25.75,
-    "t1": 27.19,
-    "t2": 27.88,
-    "t3": 28.67,
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
