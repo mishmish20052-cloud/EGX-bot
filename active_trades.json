@@ -1,19 +1,4 @@
 {
-  "ARCC": {
-    "entry_price": 73.5,
-    "entry_date": "2026-08-13",
-    "shares": 81,
-    "remaining": 25,
-    "sl": 71.3,
-    "current_stop": 75.26,
-    "t1": 75.26,
-    "t2": 77.17,
-    "t3": 79.38,
-    "t1_hit": true,
-    "t2_hit": true,
-    "t3_hit": false,
-    "recorded": true
-  },
   "RMDA": {
     "entry_price": 6.5,
     "entry_date": "2026-08-13",
