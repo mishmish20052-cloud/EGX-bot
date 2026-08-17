@@ -198,5 +198,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "ARCC": {
+    "entry_price": 75.1,
+    "entry_date": "2026-08-17",
+    "shares": 79,
+    "remaining": 79,
+    "sl": 72.85,
+    "current_stop": 72.85,
+    "t1": 76.9,
+    "t2": 78.85,
+    "t3": 81.11,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
