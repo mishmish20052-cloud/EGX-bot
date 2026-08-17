@@ -129,21 +129,6 @@
     "t2_hit": false,
     "t3_hit": false
   },
-  "MCQE": {
-    "entry_price": 248.11,
-    "entry_date": "2026-08-13",
-    "shares": 24,
-    "remaining": 15,
-    "sl": 240.67,
-    "current_stop": 248.11,
-    "t1": 254.06,
-    "t2": 260.52,
-    "t3": 267.96,
-    "t1_hit": true,
-    "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
-  },
   "ETEL": {
     "entry_price": 114,
     "entry_date": "2026-08-13",
@@ -211,20 +196,6 @@
     "t1": 27.19,
     "t2": 27.88,
     "t3": 28.67,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
-  "CIRA": {
-    "entry_price": 39.38,
-    "entry_date": "2026-08-16",
-    "shares": 152,
-    "remaining": 152,
-    "sl": 38.2,
-    "current_stop": 38.2,
-    "t1": 40.33,
-    "t2": 41.35,
-    "t3": 42.53,
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
