@@ -88,20 +88,6 @@
     "t3_hit": false,
     "recorded": true
   },
-  "MTIE": {
-    "entry_price": 9.59,
-    "entry_date": "2026-08-16",
-    "shares": 1042,
-    "remaining": 1042,
-    "sl": 9.3,
-    "current_stop": 9.3,
-    "t1": 9.82,
-    "t2": 10.07,
-    "t3": 10.36,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
   "TMGH": {
     "entry_price": 98,
     "entry_date": "2026-08-16",
@@ -143,21 +129,6 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
-  },
-  "ARCC": {
-    "entry_price": 75.1,
-    "entry_date": "2026-08-17",
-    "shares": 79,
-    "remaining": 48,
-    "sl": 72.85,
-    "current_stop": 75.1,
-    "t1": 76.9,
-    "t2": 78.85,
-    "t3": 81.11,
-    "t1_hit": true,
-    "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
   },
   "IFAP": {
     "entry_price": 20.9,
