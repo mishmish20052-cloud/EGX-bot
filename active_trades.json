@@ -159,20 +159,6 @@
     "t2_hit": false,
     "t3_hit": false
   },
-  "ORHD": {
-    "entry_price": 42.69,
-    "entry_date": "2026-08-18",
-    "shares": 140,
-    "remaining": 140,
-    "sl": 41.41,
-    "current_stop": 41.41,
-    "t1": 43.71,
-    "t2": 44.82,
-    "t3": 46.11,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
   "MASR": {
     "entry_price": 7.69,
     "entry_date": "2026-08-18",
