@@ -228,5 +228,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "MASR": {
+    "entry_price": 7.69,
+    "entry_date": "2026-08-18",
+    "shares": 780,
+    "remaining": 780,
+    "sl": 7.46,
+    "current_stop": 7.46,
+    "t1": 7.87,
+    "t2": 8.07,
+    "t3": 8.31,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
