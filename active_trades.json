@@ -1,46 +1,4 @@
 {
-  "RMDA": {
-    "entry_price": 6.5,
-    "entry_date": "2026-08-13",
-    "shares": 923,
-    "remaining": 923,
-    "sl": 6.3,
-    "current_stop": 6.3,
-    "t1": 6.66,
-    "t2": 6.83,
-    "t3": 7.02,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
-  "JUFO": {
-    "entry_price": 27.48,
-    "entry_date": "2026-08-13",
-    "shares": 363,
-    "remaining": 363,
-    "sl": 26.66,
-    "current_stop": 26.66,
-    "t1": 28.14,
-    "t2": 28.85,
-    "t3": 29.68,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
-  "ORHD": {
-    "entry_price": 42.75,
-    "entry_date": "2026-08-13",
-    "shares": 233,
-    "remaining": 233,
-    "sl": 41.47,
-    "current_stop": 41.47,
-    "t1": 43.78,
-    "t2": 44.89,
-    "t3": 46.17,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
   "EFIH": {
     "entry_price": 23.99,
     "entry_date": "2026-08-13",
@@ -70,20 +28,6 @@
     "t2_hit": false,
     "t3_hit": false,
     "recorded": true
-  },
-  "MASR": {
-    "entry_price": 7.64,
-    "entry_date": "2026-08-13",
-    "shares": 785,
-    "remaining": 785,
-    "sl": 7.41,
-    "current_stop": 7.41,
-    "t1": 7.82,
-    "t2": 8.02,
-    "t3": 8.25,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
   },
   "PHDC": {
     "entry_price": 15.24,
@@ -133,15 +77,16 @@
     "entry_price": 10.92,
     "entry_date": "2026-08-16",
     "shares": 549,
-    "remaining": 549,
+    "remaining": 330,
     "sl": 10.59,
-    "current_stop": 10.59,
+    "current_stop": 10.92,
     "t1": 11.18,
     "t2": 11.47,
     "t3": 11.79,
-    "t1_hit": false,
+    "t1_hit": true,
     "t2_hit": false,
-    "t3_hit": false
+    "t3_hit": false,
+    "recorded": true
   },
   "MTIE": {
     "entry_price": 9.59,
@@ -203,15 +148,16 @@
     "entry_price": 75.1,
     "entry_date": "2026-08-17",
     "shares": 79,
-    "remaining": 79,
+    "remaining": 48,
     "sl": 72.85,
-    "current_stop": 72.85,
+    "current_stop": 75.1,
     "t1": 76.9,
     "t2": 78.85,
     "t3": 81.11,
-    "t1_hit": false,
+    "t1_hit": true,
     "t2_hit": false,
-    "t3_hit": false
+    "t3_hit": false,
+    "recorded": true
   },
   "IFAP": {
     "entry_price": 20.9,
