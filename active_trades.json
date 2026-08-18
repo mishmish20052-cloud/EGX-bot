@@ -186,5 +186,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "LCSW": {
+    "entry_price": 33.41,
+    "entry_date": "2026-08-18",
+    "shares": 179,
+    "remaining": 179,
+    "sl": 32.41,
+    "current_stop": 32.41,
+    "t1": 34.21,
+    "t2": 35.08,
+    "t3": 36.08,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
