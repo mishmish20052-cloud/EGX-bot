@@ -181,12 +181,12 @@
   },
   "MTIE": {
     "min_rvol": 0.85,
-    "min_score": 60,
+    "min_score": 63,
     "rsi_min": 38,
     "rsi_max": 76,
-    "total_trades": 0,
+    "total_trades": 1,
     "winning_trades": 0,
-    "win_rate": 100.0,
+    "win_rate": 0.0,
     "learned_sessions": 4
   },
   "ACGC": {
