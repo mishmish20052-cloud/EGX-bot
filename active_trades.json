@@ -14,36 +14,6 @@
     "t3_hit": false,
     "recorded": true
   },
-  "ETEL": {
-    "entry_price": 114,
-    "entry_date": "2026-08-13",
-    "shares": 52,
-    "remaining": 32,
-    "sl": 110.58,
-    "current_stop": 114,
-    "t1": 116.74,
-    "t2": 119.7,
-    "t3": 123.12,
-    "t1_hit": true,
-    "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
-  },
-  "ATQA": {
-    "entry_price": 10.92,
-    "entry_date": "2026-08-16",
-    "shares": 549,
-    "remaining": 166,
-    "sl": 10.59,
-    "current_stop": 11.18,
-    "t1": 11.18,
-    "t2": 11.47,
-    "t3": 11.79,
-    "t1_hit": true,
-    "t2_hit": true,
-    "t3_hit": false,
-    "recorded": true
-  },
   "TMGH": {
     "entry_price": 98,
     "entry_date": "2026-08-16",
@@ -71,21 +41,6 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
-  },
-  "LCSW": {
-    "entry_price": 33.41,
-    "entry_date": "2026-08-18",
-    "shares": 179,
-    "remaining": 108,
-    "sl": 32.41,
-    "current_stop": 33.41,
-    "t1": 34.21,
-    "t2": 35.08,
-    "t3": 36.08,
-    "t1_hit": true,
-    "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
   },
   "JUFO": {
     "entry_price": 27.15,
