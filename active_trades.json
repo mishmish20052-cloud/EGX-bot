@@ -116,21 +116,6 @@
     "t2_hit": false,
     "t3_hit": false
   },
-  "ICFC": {
-    "entry_price": 17.09,
-    "entry_date": "2026-08-18",
-    "shares": 351,
-    "remaining": 106,
-    "sl": 16.58,
-    "current_stop": 17.5,
-    "t1": 17.5,
-    "t2": 17.94,
-    "t3": 18.46,
-    "t1_hit": true,
-    "t2_hit": true,
-    "t3_hit": false,
-    "recorded": true
-  },
   "LCSW": {
     "entry_price": 33.41,
     "entry_date": "2026-08-18",
