@@ -157,5 +157,19 @@
     "t1_hit": false,
     "t2_hit": false,
     "t3_hit": false
+  },
+  "PHDC": {
+    "entry_price": 15.25,
+    "entry_date": "2026-08-19",
+    "shares": 393,
+    "remaining": 393,
+    "sl": 14.79,
+    "current_stop": 14.79,
+    "t1": 15.62,
+    "t2": 16.01,
+    "t3": 16.47,
+    "t1_hit": false,
+    "t2_hit": false,
+    "t3_hit": false
   }
 }
