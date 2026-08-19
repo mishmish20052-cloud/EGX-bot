@@ -1,12 +1,12 @@
 """
 نظام التداول الآلي المتكامل - البورصة المصرية (EGX33)
-الإصدار النهائي 5.0 - مع جميع التعديلات المطلوبة
+الإصدار النهائي 5.0 - متوافق مع GitHub Actions
 
 الميزات:
-- تحديد رأس المال مباشرة في الكود
+- تحديد رأس المال من متغير البيئة أو القيمة الافتراضية
 - خصم العمولات والانزلاق السعري والضرائب (0.375% إجمالي)
 - تأخير بين طلبات API لتجنب حظر IP
-- مصدر بيانات احتياطي (yfinance)
+- مصدر بيانات احتياطي (yfinance) مع معالجة مرنة
 - وزن نسبي حسب الجودة (1-4% من رأس المال)
 - مخاطرة ثابتة لا تتجاوز 1.5%
 - نظام تعلم ذاتي (DNA) لكل سهم
@@ -28,16 +28,29 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from tradingview_ta import TA_Handler, Interval
-import yfinance as yf
-import pandas as pd
-import numpy as np
 
 # ===========================================================
-# 🔧 الإعدادات الأساسية (عدّل هنا مباشرة)
+# محاولة استيراد yfinance مع إمكانية الفشل (مرونة)
+# ===========================================================
+try:
+    import yfinance as yf
+    import pandas as pd
+    import numpy as np
+    YFINANCE_AVAILABLE = True
+    logging.info("✅ yfinance متاحة - سيتم استخدامها كمصدر احتياطي")
+except ImportError as e:
+    YFINANCE_AVAILABLE = False
+    logging.warning(f"⚠️ yfinance غير متوفرة: {e} - سيتم استخدام TradingView فقط")
+    yf = None
+    pd = None
+    np = None
+
+# ===========================================================
+# 🔧 الإعدادات الأساسية (عدّل هنا مباشرة أو عبر البيئة)
 # ===========================================================
 
-# 💰 رأس المال - عدل هذا الرقم حسب محفظتك
-TOTAL_CAPITAL = 10000  # مثلاً: 100,000 جنيه مصري
+# 💰 رأس المال - من متغير البيئة أو القيمة الافتراضية
+TOTAL_CAPITAL = float(os.environ.get("TOTAL_CAPITAL", "100000"))
 
 # 📝 وضع القياس: True = تداول ورقي (بدون مخاطرة حقيقية)
 #                    False = تداول حقيقي (مع تطبيق حدود المخاطرة)
@@ -75,7 +88,6 @@ FORCE_RUN = os.environ.get("FORCE_RUN", "0") == "1"
 # 📋 قائمة الأسهم المتوافقة مع الشريعة (الرسمية)
 # ===========================================================
 SHARIA_STOCKS = {
-    # الاسم في النظام: (الاسم الكامل, القطاع)
     "ADIB": ("مصرف أبوظبي الإسلامي", "FINANCIAL"),
     "SAUD": ("مصرف البركة", "FINANCIAL"),
     "FAIT": ("بنك فيصل الإسلامي", "FINANCIAL"),
@@ -123,7 +135,6 @@ STATS_FILE = "daily_stats.json"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 CAIRO = ZoneInfo("Africa/Cairo")
 
-# كاش البيانات
 _data_cache = {}
 
 # ===========================================================
@@ -209,38 +220,27 @@ def get_dna(sym):
     return mem.get(sym, default.copy())
 
 def update_dna(sym, result, price_change, net_pnl=0):
-    """
-    تحديث ذاكرة السهم بعد كل صفقة.
-    result: 'win' أو 'loss'
-    price_change: نسبة تغير السعر
-    net_pnl: صافي الربح/الخسارة بالجنيه بعد العمولات
-    """
     dna = get_dna(sym)
     dna["total_trades"] += 1
     
     if result == "win":
         dna["winning_trades"] += 1
         dna["consecutive_losses"] = 0
-        # زيادة الثقة في السهم: خفض شروط الدخول قليلاً
         dna["min_rvol"] = max(0.60, dna["min_rvol"] - 0.05)
         dna["min_score"] = max(50, dna["min_score"] - 2)
         dna["risk_multiplier"] = min(1.5, dna["risk_multiplier"] + 0.05)
     else:
         dna["consecutive_losses"] += 1
-        # تشديد الشروط بعد الخسارة
         dna["min_rvol"] = min(1.50, dna["min_rvol"] + 0.08)
         dna["min_score"] = min(85, dna["min_score"] + 5)
-        # تخفيض المخاطرة بعد خسارتين متتاليتين
         if dna["consecutive_losses"] >= 2:
             dna["risk_multiplier"] = max(0.40, dna["risk_multiplier"] - 0.15)
     
-    # تحديث نسبة النجاح
     dna["win_rate"] = round(
         dna["winning_trades"] / dna["total_trades"] * 100, 1
     )
     dna["learned_sessions"] += 1
     
-    # تعديل نطاق RSI بناءً على النتائج
     if price_change > 0 and result == "win":
         dna["rsi_min"] = max(30, dna["rsi_min"] - 1)
         dna["rsi_max"] = min(80, dna["rsi_max"] + 1)
@@ -248,14 +248,12 @@ def update_dna(sym, result, price_change, net_pnl=0):
         dna["rsi_min"] = min(50, dna["rsi_min"] + 2)
         dna["rsi_max"] = max(65, dna["rsi_max"] - 2)
     
-    # حفظ
     mem = load_json_local(DNA_FILE, {})
     mem[sym] = dna
     save_json_local(DNA_FILE, mem)
     save_to_github(DNA_FILE, mem, f"DNA update {sym}")
 
 def bump_stat(key, value=1):
-    """تسجيل إحصائية يومية."""
     stats = load_json_local(STATS_FILE, {})
     today = datetime.now(CAIRO).strftime("%Y-%m-%d")
     d = stats.setdefault(today, {"wins": 0, "losses": 0, "signals": 0})
@@ -263,7 +261,6 @@ def bump_stat(key, value=1):
     save_json_local(STATS_FILE, stats)
 
 def mark_alerted(sym):
-    """منع تكرار تنبيه الحركة القوية لنفس السهم في اليوم."""
     stats = load_json_local(STATS_FILE, {})
     meta = stats.setdefault("_meta", {})
     alerted = meta.setdefault("alerted", {})
@@ -278,10 +275,6 @@ def mark_alerted(sym):
 # 🌍 تحليل حالة السوق
 # ===========================================================
 def market_regime():
-    """
-    تحليل حالة السوق باستخدام مؤشرات EGX30.
-    يعيد: (النوع, المضاعف, الحد الأقصى للصفقات, المخاطرة)
-    """
     for sym in ["EGX30", "EGX30.CA", "^EGX30", "TMGH"]:
         try:
             time.sleep(REQUEST_DELAY * 0.5)
@@ -305,89 +298,36 @@ def market_regime():
             chg = ((c - o) / o * 100) if o else 0
             
             if chg <= -3.0 or (e200 and c < e200 and rsi < 30):
-                return {
-                    "type": "CRASH ⚫",
-                    "mult": 0.0,
-                    "max_trades": 0,
-                    "risk": "EXTREME",
-                    "chg": chg,
-                    "defensive": True
-                }
+                return {"type": "CRASH ⚫", "mult": 0.0, "max_trades": 0, "risk": "EXTREME", "chg": chg, "defensive": True}
             if e50 and e200 and c > e50 > e200 and macd > msig and rsi < 75:
-                return {
-                    "type": "STRONG_BULL 🟢",
-                    "mult": 1.4,
-                    "max_trades": 5,
-                    "risk": "LOW",
-                    "chg": chg
-                }
+                return {"type": "STRONG_BULL 🟢", "mult": 1.4, "max_trades": 5, "risk": "LOW", "chg": chg}
             if e50 and c > e50 and macd > msig:
-                return {
-                    "type": "BULL 🟢",
-                    "mult": 1.1,
-                    "max_trades": 4,
-                    "risk": "LOW",
-                    "chg": chg
-                }
+                return {"type": "BULL 🟢", "mult": 1.1, "max_trades": 4, "risk": "LOW", "chg": chg}
             if e50 and c < e50 and macd < msig:
-                return {
-                    "type": "BEAR 🔴",
-                    "mult": 0.5,
-                    "max_trades": 2,
-                    "risk": "HIGH",
-                    "chg": chg,
-                    "defensive": True
-                }
-            return {
-                "type": "SIDEWAYS 🟠",
-                "mult": 0.8,
-                "max_trades": 3,
-                "risk": "MEDIUM",
-                "chg": chg
-            }
+                return {"type": "BEAR 🔴", "mult": 0.5, "max_trades": 2, "risk": "HIGH", "chg": chg, "defensive": True}
+            return {"type": "SIDEWAYS 🟠", "mult": 0.8, "max_trades": 3, "risk": "MEDIUM", "chg": chg}
         except Exception:
             continue
-    
-    return {
-        "type": "UNKNOWN 🟡",
-        "mult": 1.0,
-        "max_trades": 3,
-        "risk": "MEDIUM",
-        "chg": 0
-    }
+    return {"type": "UNKNOWN 🟡", "mult": 1.0, "max_trades": 3, "risk": "MEDIUM", "chg": 0}
 
 # ===========================================================
-# 📊 جلب البيانات (مع مصدر احتياطي وتأخير بين الطلبات)
+# 📊 جلب البيانات (مع مصدر احتياطي وتأخير)
 # ===========================================================
 def fetch_from_tradingview(symbol):
-    """جلب البيانات من TradingView مع تأخير لتجنب الحظر."""
-    time.sleep(REQUEST_DELAY)  # تأخير بين كل طلب
-    
+    time.sleep(REQUEST_DELAY)
     for attempt in range(MAX_RETRIES):
         try:
-            h15 = TA_Handler(
-                symbol=symbol,
-                screener="egypt",
-                exchange="EGX",
-                interval=Interval.INTERVAL_15_MINUTES
-            )
+            h15 = TA_Handler(symbol=symbol, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_15_MINUTES)
             i15 = h15.get_analysis().indicators
-            
-            h1 = TA_Handler(
-                symbol=symbol,
-                screener="egypt",
-                exchange="EGX",
-                interval=Interval.INTERVAL_1_DAY
-            )
+            h1 = TA_Handler(symbol=symbol, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_1_DAY)
             i1 = h1.get_analysis().indicators
 
             c = i15.get("close", 0) or 0
             o = i15.get("open", 0) or 0
             v = i15.get("volume", 0) or 0
-            
             if c <= 0:
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)  # تأخير متزايد: 1, 2, 4, 8, 16
+                    time.sleep(2 ** attempt)
                 continue
 
             vs = i15.get("volume.SMA20", 0) or 0
@@ -396,11 +336,7 @@ def fetch_from_tradingview(symbol):
             e50d = i1.get("EMA50", c1) or c1
 
             return {
-                "sym": symbol,
-                "close": c,
-                "open": o,
-                "volume": v,
-                "rvol": rvol,
+                "sym": symbol, "close": c, "open": o, "volume": v, "rvol": rvol,
                 "chg": ((c - o) / o * 100) if o else 0,
                 "rsi15": i15.get("RSI", 50) or 50,
                 "e25_15": i15.get("EMA25", c) or c,
@@ -418,32 +354,25 @@ def fetch_from_tradingview(symbol):
     return None
 
 def fetch_from_yfinance(symbol):
-    """جلب البيانات من yfinance كمصدر احتياطي."""
+    if not YFINANCE_AVAILABLE:
+        return None
     try:
         yf_symbol = symbol + ".CA"
         df = yf.download(yf_symbol, period="5d", interval="15m", progress=False)
         if df.empty:
             return None
-        
         last = df.iloc[-1]
-        if len(df) >= 20:
-            vol_sma = df['Volume'].rolling(20).mean().iloc[-1]
-        else:
-            vol_sma = last['Volume']
+        vol_sma = df['Volume'].rolling(20).mean().iloc[-1] if len(df) >= 20 else last['Volume']
         rvol = (last['Volume'] / vol_sma) if vol_sma > 0 else 1.0
         
-        # حساب المؤشرات
-        df['RSI'] = 50  # مبسط
+        df['RSI'] = 50
         df['EMA25'] = df['Close'].ewm(span=25).mean()
         df['EMA50'] = df['Close'].ewm(span=50).mean()
         df['ATR'] = (df['High'] - df['Low']).rolling(14).mean()
         
         return {
-            "sym": symbol,
-            "close": float(last['Close']),
-            "open": float(last['Open']),
-            "volume": float(last['Volume']),
-            "rvol": round(rvol, 2),
+            "sym": symbol, "close": float(last['Close']), "open": float(last['Open']),
+            "volume": float(last['Volume']), "rvol": round(rvol, 2),
             "chg": ((last['Close'] - last['Open']) / last['Open'] * 100) if last['Open'] > 0 else 0,
             "rsi15": float(df['RSI'].iloc[-1]),
             "e25_15": float(df['EMA25'].iloc[-1]),
@@ -459,32 +388,23 @@ def fetch_from_yfinance(symbol):
         return None
 
 def fetch_stock(symbol):
-    """جلب البيانات من المصدر الرئيسي مع التبديل إلى الاحتياطي عند الفشل."""
     if symbol in _data_cache:
         return _data_cache[symbol]
     
-    # المحاولة من TradingView أولاً
     data = fetch_from_tradingview(symbol)
-    
-    # إذا فشل، استخدم yfinance
-    if data is None:
+    if data is None and YFINANCE_AVAILABLE:
         logging.info(f"↻ استخدام yfinance كبديل لـ {symbol}")
         data = fetch_from_yfinance(symbol)
     
     if data:
-        # إضافة القطاع
         data["sector"] = SHARIA_STOCKS.get(symbol, ("غير معروف", "OTHER"))[1]
-        # تخزين في الكاش
         _data_cache[symbol] = data
         return data
-    
     return None
 
 def fetch_all_stocks(selected_stocks=None):
-    """جلب جميع الأسهم بالتوازي مع تأخير بين الطلبات."""
     if selected_stocks is None:
         selected_stocks = STOCKS
-    
     all_data = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(fetch_stock, sym): sym for sym in selected_stocks}
@@ -502,11 +422,6 @@ def fetch_all_stocks(selected_stocks=None):
 # 🎯 نظام التقييم
 # ===========================================================
 def evaluate(d, dna, regime):
-    """
-    تقييم السهم بناءً على المؤشرات والذاكرة وحالة السوق.
-    تعيد (النوع, النقاط) أو None إذا غير مؤهل.
-    """
-    # الفلاتر الأساسية
     if d["volume"] < MIN_VOLUME:
         return None
     if d["chg"] >= 8.5:
@@ -518,7 +433,6 @@ def evaluate(d, dna, regime):
     if regime["risk"] == "EXTREME":
         return None
 
-    # تعديل الحد الأدنى حسب الظروف
     min_score = dna["min_score"]
     if regime["risk"] == "HIGH":
         min_score += 15
@@ -527,13 +441,11 @@ def evaluate(d, dna, regime):
     if dna["consecutive_losses"] >= 2:
         min_score += 15
 
-    # احتياج RVOL حسب الوقت
     now = datetime.now(CAIRO)
     rvol_need = dna["min_rvol"]
     if now.hour == 10 and now.minute <= 30:
         rvol_need *= 1.3
 
-    # حساب النقاط
     score = 0
     if dna["rsi_min"] <= d["rsi15"] <= dna["rsi_max"]:
         score += 25
@@ -546,52 +458,311 @@ def evaluate(d, dna, regime):
     if d["green15"]:
         score += 15
 
-    # انفجار فوري
-    instant = (
-        d["chg"] >= 2.0 and
-        d["rvol"] >= rvol_need and
-        dna["rsi_min"] <= d["rsi15"] <= dna["rsi_max"] and
-        d["bull1d"]
-    )
+    instant = (d["chg"] >= 2.0 and d["rvol"] >= rvol_need and
+               dna["rsi_min"] <= d["rsi15"] <= dna["rsi_max"] and d["bull1d"])
     if instant:
         return {"type": "Super Breakout 🚀", "score": 98}
-
-    # اتجاه منتظم
     if score >= min_score and d["rvol"] >= rvol_need:
         return {"type": "Trend 📈", "score": min(score, 100)}
-
     return None
 
 # ===========================================================
 # 💼 حساب خطة الصفقة (مع خصم العمولات)
 # ===========================================================
 def quality_weight(score, risk_multiplier=1.0):
-    """حساب الوزن النسبي للصفقة بناءً على الجودة (1-4% من رأس المال)."""
-    if score >= 90:
-        base = 0.040
-    elif score >= 80:
-        base = 0.032
-    elif score >= 70:
-        base = 0.025
-    elif score >= 60:
-        base = 0.018
-    else:
-        base = 0.010
+    if score >= 90: base = 0.040
+    elif score >= 80: base = 0.032
+    elif score >= 70: base = 0.025
+    elif score >= 60: base = 0.018
+    else: base = 0.010
     adjusted = base * risk_multiplier
     return min(adjusted, 0.050)
 
-def apply_fees(price, shares, is_buy=True):
-    """
-    تطبيق العمولات والضرائب على السعر أو قيمة الصفقة.
-    """
-    rate = TOTAL_FEE_RATE if is_buy else TOTAL_FEE_RATE
-    return price * (1 + rate) if is_buy else price * (1 - rate)
-
 def calculate_net_pnl(entry, exit, shares):
-    """
-    حساب صافي الربح/الخسارة بعد خصم جميع العمولات والضرائب.
-    """
-    # سعر الدخول مع العمولات
     entry_with_fees = entry * (1 + TOTAL_FEE_RATE)
-    # سعر الخروج مع العمولات
-    exit_with_fees
+    exit_with_fees = exit * (1 - TOTAL_FEE_RATE)
+    return (exit_with_fees - entry_with_fees) * shares
+
+def make_plan(c, atr, score, deployed, risk_multiplier=1.0):
+    weight = quality_weight(score, risk_multiplier)
+    risk_amount = TOTAL_CAPITAL * RISK_PER_TRADE
+    
+    if score >= 80: stop_distance = max(atr * 1.5, c * 0.015)
+    elif score >= 70: stop_distance = max(atr * 1.2, c * 0.012)
+    else: stop_distance = max(atr * 1.0, c * 0.010)
+    
+    sl = round(c - stop_distance, 2)
+    risk_per_share = c - sl
+    if risk_per_share <= 0: return None
+    
+    shares_by_risk = int(risk_amount // risk_per_share)
+    shares_by_weight = int((TOTAL_CAPITAL * weight) // c)
+    shares = min(shares_by_risk, shares_by_weight)
+    
+    if not MEASUREMENT_MODE:
+        max_exposure = TOTAL_CAPITAL * 0.90
+        remaining = max_exposure - deployed
+        shares_by_exposure = int(remaining // c) if remaining > 0 else 0
+        shares = min(shares, shares_by_exposure)
+    
+    if shares < 1: return None
+    
+    fee_adj = 1 + TOTAL_FEE_RATE
+    t1 = round(c + (stop_distance * 1.2 * fee_adj), 2)
+    t2 = round(c + (stop_distance * 2.0 * fee_adj), 2)
+    t3 = round(c + (stop_distance * 3.0 * fee_adj), 2)
+    
+    actual_risk = shares * (c - sl) * (1 + TOTAL_FEE_RATE)
+    risk_pct = actual_risk / TOTAL_CAPITAL * 100
+    
+    return {
+        "sl": sl, "shares": shares, "weight": weight * 100,
+        "risk_pct": round(risk_pct, 2),
+        "t1": t1, "t2": t2, "t3": t3,
+        "loss_egp": round(shares * (c - sl)),
+        "p1": round(shares * (t1 - c)), "p2": round(shares * (t2 - c)), "p3": round(shares * (t3 - c)),
+        "net_p1": round(shares * (t1 - c) * (1 - TOTAL_FEE_RATE)),
+        "net_p2": round(shares * (t2 - c) * (1 - TOTAL_FEE_RATE)),
+        "net_p3": round(shares * (t3 - c) * (1 - TOTAL_FEE_RATE)),
+        "rr_ratio": round((t1 - c) / (c - sl), 2) if (c - sl) > 0 else 0
+    }
+
+# ===========================================================
+# 🔄 متابعة الصفقات المفتوحة
+# ===========================================================
+def track(all_data):
+    trades = load_json_local(TRADES_FILE, {})
+    dna_mem = load_json_local(DNA_FILE, {})
+    updated = False
+    now = datetime.now(CAIRO)
+
+    for sym, t in list(trades.items()):
+        if sym not in all_data:
+            continue
+        price = all_data[sym]["close"]
+        name = SHARIA_STOCKS[sym][0]
+        dna = dna_mem.setdefault(sym, get_dna(sym))
+
+        days = (now.replace(tzinfo=None) - datetime.strptime(t["entry_date"], '%Y-%m-%d')).days
+        if days >= TIME_STOP_DAYS and not t.get("t1_hit"):
+            remaining = t.get("remaining", t["shares"])
+            net_pnl = calculate_net_pnl(t["entry_price"], price, remaining)
+            send_tg(f"⏳ *إغلاق زمني*\n📌 `{sym} - {name}` راكد {days} أيام\n🛒 *بع الكل:* `{remaining}` سهم\n💸 صافي الخسارة: `{net_pnl:,.0f}` ج.م")
+            price_change = (price - t["entry_price"]) / t["entry_price"] * 100
+            update_dna(sym, "loss", price_change, net_pnl)
+            bump_stat("losses")
+            del trades[sym]
+            updated = True
+            continue
+
+        remaining = t.get("remaining", t["shares"])
+        
+        if not t.get("t3_hit") and price >= t["t3"]:
+            t["t3_hit"] = True
+            sold = remaining
+            t["remaining"] = 0
+            net_pnl = calculate_net_pnl(t["entry_price"], price, sold)
+            send_tg(f"🔥 *T3 تحقق - اكتمال الربح*\n📌 `{sym} - {name}` | 💵 {price}\n🛒 *بع المتبقي:* `{sold}` سهم\n💰 صافي الربح: `{net_pnl:,.0f}` ج.م\n✅ صفقة مكتملة بنجاح")
+            price_change = (price - t["entry_price"]) / t["entry_price"] * 100
+            update_dna(sym, "win", price_change, net_pnl)
+            bump_stat("wins")
+            del trades[sym]
+            updated = True
+            continue
+
+        if t.get("t1_hit") and not t.get("t2_hit") and price >= t["t2"]:
+            t["t2_hit"] = True
+            sold = max(1, math.floor(t["shares"] * 0.30))
+            t["remaining"] = remaining - sold
+            t["current_stop"] = t["t1"]
+            net_pnl = calculate_net_pnl(t["entry_price"], price, sold)
+            send_tg(f"🚀 *T2 تحقق*\n📌 `{sym} - {name}` | 💵 {price}\n🛒 *بع الآن:* `{sold}` سهم (30%)\n📦 المتبقي: `{t['remaining']}` سهم\n💰 صافي الربح المحقق: `{net_pnl:,.0f}` ج.م\n🛑 *الستوب الجديد:* `{t['t1']}` (قفل ربح)")
+            updated = True
+
+        if not t.get("t1_hit") and price >= t["t1"]:
+            t["t1_hit"] = True
+            sold = max(1, math.floor(t["shares"] * 0.40))
+            t["remaining"] = remaining - sold
+            t["current_stop"] = t["entry_price"]
+            net_pnl = calculate_net_pnl(t["entry_price"], price, sold)
+            send_tg(f"🎯 *T1 تحقق*\n📌 `{sym} - {name}` | 💵 {price}\n🛒 *بع الآن:* `{sold}` سهم (40%)\n📦 المتبقي: `{t['remaining']}` سهم\n💰 صافي الربح المحقق: `{net_pnl:,.0f}` ج.م\n🛑 *الستوب الجديد:* `{t['entry_price']}` (نقطة التعادل)")
+            updated = True
+
+        current_stop = t.get("current_stop", t["sl"])
+        if price <= current_stop:
+            sold = t.get("remaining", t["shares"])
+            net_pnl = calculate_net_pnl(t["entry_price"], price, sold)
+            send_tg(f"🛑 *ستوب لوس*\n📌 `{sym} - {name}` | 📉 كسر `{current_stop}`\n🛒 *بع كل المتبقي:* `{sold}` سهم\n💸 صافي الخسارة: `{net_pnl:,.0f}` ج.م")
+            price_change = (price - t["entry_price"]) / t["entry_price"] * 100
+            update_dna(sym, "loss", price_change, net_pnl)
+            bump_stat("losses")
+            del trades[sym]
+            updated = True
+
+    if updated:
+        save_json_local(TRADES_FILE, trades)
+        save_to_github(TRADES_FILE, trades, "trades update")
+        save_json_local(DNA_FILE, dna_mem)
+        save_to_github(DNA_FILE, dna_mem, "DNA update")
+
+# ===========================================================
+# 📋 التقارير
+# ===========================================================
+def morning_report(regime):
+    stats = load_json_local(STATS_FILE, {})
+    today = datetime.now(CAIRO).strftime("%Y-%m-%d")
+    if stats.get("_meta", {}).get("report") == today:
+        return
+    mode_note = "\n📝 *وضع القياس مفعل: رصد بلا حدود*" if MEASUREMENT_MODE else ""
+    send_tg(f"🌍 *تقرير الصباح*\n\n📊 EGX30: `{regime['chg']:+.2f}%`\n🎯 الحالة: `{regime['type']}`\n⚠️ المخاطرة: `{regime['risk']}`\n💼 أقصى صفقات اليوم: `{regime['max_trades']}`{mode_note}")
+    stats["_meta"] = {"report": today}
+    save_json_local(STATS_FILE, stats)
+
+def eod_adaptation(all_data):
+    dna_mem = load_json_local(DNA_FILE, {})
+    reports = []
+    for sym, d in all_data.items():
+        dna = dna_mem.setdefault(sym, get_dna(sym))
+        if d["chg"] >= 3.0 and d["rvol"] < dna["min_rvol"]:
+            dna["min_rvol"] = max(0.60, round(dna["min_rvol"] - 0.08, 2))
+            reports.append(f"• `{sym}`: خفض شرط السيولة إلى `{dna['min_rvol']}x`")
+        if dna.get("win_rate", 0) >= 70 and dna["total_trades"] >= 3:
+            dna["min_score"] = max(50, dna["min_score"] - 2)
+        dna["learned_sessions"] = dna.get("learned_sessions", 0) + 1
+    save_json_local(DNA_FILE, dna_mem)
+    save_to_github(DNA_FILE, dna_mem, "DNA EOD adaptation")
+    return reports
+
+def eod_report(trades, all_data):
+    now = datetime.now(CAIRO)
+    if not (now.hour == 14 and now.minute >= 15):
+        return
+    stats = load_json_local(STATS_FILE, {})
+    today = now.strftime("%Y-%m-%d")
+    if stats.get("_meta", {}).get("eod") == today:
+        return
+    d = stats.get(today, {"wins": 0, "losses": 0, "signals": 0})
+    msg = f"🌙 *تقرير الإغلاق*\n\n📅 {today}\n🎯 إشارات: `{d['signals']}`\n✅ أهداف: `{d['wins']}`\n🛑 ستوبات: `{d['losses']}`\n💼 مفتوحة: `{len(trades)}`"
+    if now.weekday() == 3:
+        tot_w = sum(v.get("wins", 0) for k, v in stats.items() if k != "_meta")
+        tot_l = sum(v.get("losses", 0) for k, v in stats.items() if k != "_meta")
+        msg += f"\n\n📊 *ملخص الأسبوع:* ✅ {tot_w} | 🛑 {tot_l}"
+    send_tg(msg)
+
+    adapt = eod_adaptation(all_data)
+    if adapt:
+        send_tg("🧬 *تكيف DNA اليومي*\n\n" + "\n".join(adapt[:5]))
+
+    stats["_meta"] = stats.get("_meta", {})
+    stats["_meta"]["eod"] = today
+    save_json_local(STATS_FILE, stats)
+
+# ===========================================================
+# 🚀 المحرك الرئيسي
+# ===========================================================
+def run():
+    logging.info(f"🚀 بدء التشغيل - رأس المال: {TOTAL_CAPITAL:,.0f} ج.م")
+    logging.info(f"📝 وضع القياس: {'مفعل' if MEASUREMENT_MODE else 'غير مفعل'}")
+    logging.info(f"💰 إجمالي العمولات: {TOTAL_FEE_RATE*100:.2f}%")
+
+    regime = market_regime()
+    logging.info(f"🌍 السوق: {regime['type']}")
+
+    if FORCE_RUN:
+        send_tg(f"🧪 *تشغيل يدوي*\n\n🌍 السوق: `{regime['type']}`\n📊 التغير: `{regime['chg']:+.2f}%`\n💰 رأس المال: `{TOTAL_CAPITAL:,.0f}` ج.م\n💓 نبض: {PULSE_CYCLES} دورات × {PULSE_SLEEP} ثانية")
+
+    if regime["mult"] == 0.0:
+        trades = load_json_local(TRADES_FILE, {})
+        if trades:
+            send_tg(f"🚨 *انهيار سوق!*\nEGX30: `{regime['chg']:+.2f}%`\n💰 أغلق كل الصفقات - كاش")
+            save_to_github(TRADES_FILE, {}, "emergency close")
+        return
+
+    morning_report(regime)
+
+    trades = load_json_local(TRADES_FILE, {})
+    deployed = sum(t.get("entry_price", 0) * t.get("shares", 0) for t in trades.values())
+    max_trades = 999 if MEASUREMENT_MODE else regime["max_trades"]
+    all_data = {}
+    total_signals = 0
+
+    for cycle in range(PULSE_CYCLES):
+        logging.info(f"💓 دورة النبض {cycle + 1}/{PULSE_CYCLES}")
+
+        allowed = STOCKS
+        if regime.get("defensive"):
+            allowed = [s for s in STOCKS if SHARIA_STOCKS[s][1] in DEFENSIVE]
+
+        all_data = fetch_all_stocks(allowed)
+
+        for sym, d in all_data.items():
+            if d["chg"] >= 2.5 and d["rvol"] >= 2.0 and d["rsi15"] <= 70:
+                if mark_alerted(sym):
+                    send_tg(f"🚨 *حركة قوية مدعومة*\n📌 `{sym} - {SHARIA_STOCKS[sym][0]}`\n📈 التغير: `{d['chg']:+.1f}%`\n📊 RVOL: `{d['rvol']}x` | RSI: `{d['rsi15']:.0f}`")
+
+            dna = get_dna(sym)
+            res = evaluate(d, dna, regime)
+            if res and sym not in trades and len(trades) < max_trades:
+                plan = make_plan(
+                    c=d["close"], atr=d["atr1"], score=res["score"],
+                    deployed=deployed, risk_multiplier=dna.get("risk_multiplier", 1.0)
+                )
+                if not plan: continue
+                if plan["rr_ratio"] < 1.5: continue
+                if plan["risk_pct"] > 1.5:
+                    logging.warning(f"⚠️ {sym}: المخاطرة {plan['risk_pct']}% تتجاوز الحد 1.5%")
+                    continue
+
+                trades[sym] = {
+                    "entry_price": d["close"],
+                    "entry_date": datetime.now(CAIRO).strftime('%Y-%m-%d'),
+                    "shares": plan["shares"],
+                    "remaining": plan["shares"],
+                    "sl": plan["sl"],
+                    "current_stop": plan["sl"],
+                    "t1": plan["t1"], "t2": plan["t2"], "t3": plan["t3"],
+                    "t1_hit": False, "t2_hit": False, "t3_hit": False
+                }
+                deployed += plan["shares"] * d["close"]
+                bump_stat("signals")
+                total_signals += 1
+
+                paper_note = "\n📝 *صفقة ورقية - وضع القياس*" if MEASUREMENT_MODE else ""
+                risk_note = f"\n🛡️ المخاطرة: `{plan['risk_pct']}%` (حد أقصى 1.5%)"
+                rr_note = f"\n✅ نسبة المخاطرة/المكافأة: 1:{plan['rr_ratio']}"
+                fees_note = f"\n💰 صافي الأرباح بعد العمولات ({TOTAL_FEE_RATE*100:.2f}%):\n   🎯 T1: +`{plan['net_p1']:,.0f}` ج.م\n   🚀 T2: +`{plan['net_p2']:,.0f}` ج.م\n   🔥 T3: +`{plan['net_p3']:,.0f}` ج.م"
+
+                send_tg(
+                    f"🚀 *{res['type']}*\n"
+                    f"🎖️ الجودة: `{res['score']}/100` → الوزن: `{plan['weight']:.1f}%`\n\n"
+                    f"🌍 السوق: `{regime['type']}`\n"
+                    f"📌 `{sym} - {SHARIA_STOCKS[sym][0]}` ({SHARIA_STOCKS[sym][1]})\n"
+                    f"💵 دخول: `{d['close']}` | 📊 RSI: `{d['rsi15']:.0f}`\n"
+                    f"📦 الكمية: `{plan['shares']}` سهم (بقيمة `{plan['shares'] * d['close']:,.0f}` ج.م)\n"
+                    f"💰 نسبة من رأس المال: `{plan['weight']:.1f}%`\n\n"
+                    f"💸 الخسارة عند الستوب `{plan['sl']}`: ≈ `{plan['loss_egp']:,.0f}` ج.م\n"
+                    f"💰 الأرباح المحتملة (الإجمالي):\n"
+                    f"   🎯 T1 `{plan['t1']}`: +`{plan['p1']:,.0f}` ج.م\n"
+                    f"   🚀 T2 `{plan['t2']}`: +`{plan['p2']:,.0f}` ج.م\n"
+                    f"   🔥 T3 `{plan['t3']}`: +`{plan['p3']:,.0f}` ج.م"
+                    f"{fees_note}{risk_note}{rr_note}{paper_note}"
+                )
+
+                save_json_local(TRADES_FILE, trades)
+                save_to_github(TRADES_FILE, trades, f"new trade {sym}")
+
+        track(all_data)
+        if cycle < PULSE_CYCLES - 1:
+            time.sleep(PULSE_SLEEP)
+
+    eod_report(trades, all_data)
+    save_to_github(TRADES_FILE, load_json_local(TRADES_FILE, {}), "trades sync")
+    save_to_github(STATS_FILE, load_json_local(STATS_FILE, {}), "stats sync")
+
+    logging.info("✅ اكتمل التشغيل بنجاح")
+
+# ===========================================================
+# 🏁 نقطة الدخول
+# ===========================================================
+if __name__ == "__main__":
+    run()
