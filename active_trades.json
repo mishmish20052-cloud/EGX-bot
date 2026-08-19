@@ -14,21 +14,6 @@
     "t3_hit": false,
     "recorded": true
   },
-  "PHDC": {
-    "entry_price": 15.24,
-    "entry_date": "2026-08-13",
-    "shares": 393,
-    "remaining": 236,
-    "sl": 14.78,
-    "current_stop": 15.24,
-    "t1": 15.61,
-    "t2": 16.0,
-    "t3": 16.46,
-    "t1_hit": true,
-    "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
-  },
   "ETEL": {
     "entry_price": 114,
     "entry_date": "2026-08-13",
@@ -41,21 +26,6 @@
     "t3": 123.12,
     "t1_hit": true,
     "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
-  },
-  "MPCO": {
-    "entry_price": 2.19,
-    "entry_date": "2026-08-16",
-    "shares": 4566,
-    "remaining": 1371,
-    "sl": 2.12,
-    "current_stop": 2.24,
-    "t1": 2.24,
-    "t2": 2.3,
-    "t3": 2.37,
-    "t1_hit": true,
-    "t2_hit": true,
     "t3_hit": false,
     "recorded": true
   },
@@ -145,20 +115,6 @@
     "t2_hit": false,
     "t3_hit": false
   },
-  "RMDA": {
-    "entry_price": 6.4,
-    "entry_date": "2026-08-18",
-    "shares": 937,
-    "remaining": 937,
-    "sl": 6.21,
-    "current_stop": 6.21,
-    "t1": 6.55,
-    "t2": 6.72,
-    "t3": 6.91,
-    "t1_hit": false,
-    "t2_hit": false,
-    "t3_hit": false
-  },
   "ETRS": {
     "entry_price": 11.24,
     "entry_date": "2026-08-19",
@@ -177,15 +133,16 @@
     "entry_price": 18.7,
     "entry_date": "2026-08-19",
     "shares": 534,
-    "remaining": 534,
+    "remaining": 321,
     "sl": 18.14,
-    "current_stop": 18.14,
+    "current_stop": 18.7,
     "t1": 19.15,
     "t2": 19.63,
     "t3": 20.19,
-    "t1_hit": false,
+    "t1_hit": true,
     "t2_hit": false,
-    "t3_hit": false
+    "t3_hit": false,
+    "recorded": true
   },
   "SKPC": {
     "entry_price": 17.82,
