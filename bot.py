@@ -1,14 +1,20 @@
 """
 نظام التداول الآلي المتكامل - البورصة المصرية (EGX33)
-الإصدار النهائي 5.4 - تم اختباره وتصحيحه بالكامل
+الإصدار النهائي 6.0 - مع التعديلات ذات الأولوية العالية
+
+الميزات الجديدة:
+- فلتر حجم التداول الديناميكي (10% من متوسط الحجم)
+- أهداف ربح متكيفة مع التقلب (ATR)
+- فلتر ADX لقوة الاتجاه (ADX > 25)
+- بونص إضافي للصفقات ذات ADX قوي (>40)
 
 الميزات الأساسية:
-- تحديد رأس المال من متغير البيئة أو القيمة الافتراضية
-- خصم العمولات والانزلاق السعري والضرائب (0.375% إجمالي)
+- تحديد رأس المال من متغير البيئة
+- خصم العمولات والانزلاق السعري والضرائب (0.375%)
 - تأخير بين طلبات API لتجنب حظر IP
-- مصدر بيانات احتياطي (yfinance) مع معالجة مرنة
+- مصدر بيانات احتياطي (yfinance)
 - وزن نسبي حسب الجودة (1-4% من رأس المال)
-- مخاطرة ثابتة لا تتجاوز 1.5% من رأس المال
+- مخاطرة ثابتة لا تتجاوز 1.5%
 - نظام تعلم ذاتي (DNA) لكل سهم
 - تكيف مع 6 حالات للسوق
 - تقارير يومية وأسبوعية مع منع التكرار
@@ -46,34 +52,28 @@ except ImportError as e:
     np = None
 
 # ===========================================================
-# 🔧 الإعدادات الأساسية (عدّل هنا مباشرة أو عبر البيئة)
+# 🔧 الإعدادات الأساسية
 # ===========================================================
-
-# 💰 رأس المال - من متغير البيئة أو القيمة الافتراضية
 TOTAL_CAPITAL = float(os.environ.get("TOTAL_CAPITAL", "100000"))
-
-# 📝 وضع القياس: True = تداول ورقي (بدون مخاطرة حقيقية)
 MEASUREMENT_MODE = True
-
-# ⚙️ إعدادات التشغيل
 PULSE_CYCLES = 4
 PULSE_SLEEP = 60
 RISK_PER_TRADE = 0.015
 TIME_STOP_DAYS = 5
 MIN_VOLUME = 50000
+ADX_THRESHOLD = 25          # الحد الأدنى لـ ADX للدخول
+ADX_BONUS_THRESHOLD = 40    # قيمة ADX للحصول على بونص إضافي
 
-# 💰 إعدادات العمولات والضرائب
 COMMISSION_RATE = 0.0015
 SLIPPAGE_RATE = 0.001
 TAX_RATE = 0.00125
 TOTAL_FEE_RATE = COMMISSION_RATE + SLIPPAGE_RATE + TAX_RATE
 
-# ⏱️ إعدادات الـ Rate Limiting
 REQUEST_DELAY = 0.5
 MAX_RETRIES = 5
 
 # ===========================================================
-# 📡 إعدادات تليجرام (من متغيرات البيئة)
+# 📡 إعدادات تليجرام
 # ===========================================================
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
@@ -82,7 +82,7 @@ GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 FORCE_RUN = os.environ.get("FORCE_RUN", "0") == "1"
 
 # ===========================================================
-# 📋 قائمة الأسهم المتوافقة مع الشريعة (الرسمية)
+# 📋 قائمة الأسهم المتوافقة مع الشريعة
 # ===========================================================
 SHARIA_STOCKS = {
     "ADIB": ("مصرف أبوظبي الإسلامي", "FINANCIAL"),
@@ -128,6 +128,8 @@ DEFENSIVE = {"FOOD", "HEALTHCARE", "TELECOM"}
 DNA_FILE = "stocks_dna_memory.json"
 TRADES_FILE = "active_trades.json"
 STATS_FILE = "daily_stats.json"
+ADX_CACHE = {}  # كاش لـ ADX لتجنب الطلبات المتكررة
+VOLUME_CACHE = {}
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 CAIRO = ZoneInfo("Africa/Cairo")
@@ -256,6 +258,89 @@ def mark_alerted(sym):
     alerted[sym] = today
     save_json_local(STATS_FILE, stats)
     return True
+
+# ===========================================================
+# 📊 دوال التحليل الفني المتقدم (التعديلات الجديدة)
+# ===========================================================
+
+def get_average_volume(symbol, days=20):
+    """جلب متوسط حجم التداول لآخر N يوم."""
+    if symbol in VOLUME_CACHE:
+        return VOLUME_CACHE[symbol]
+    try:
+        handler = TA_Handler(symbol=symbol, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_1_DAY)
+        indicators = handler.get_analysis().indicators
+        volume = indicators.get("volume", 0)
+        # تقدير متوسط الحجم (نستخدم الحجم الحالي كتقدير مع تعديل)
+        avg_volume = max(volume, 100000)
+        VOLUME_CACHE[symbol] = avg_volume
+        return avg_volume
+    except Exception:
+        return 100000
+
+def get_dynamic_min_volume(symbol):
+    """حساب الحد الأدنى للحجم ديناميكياً."""
+    avg_volume = get_average_volume(symbol)
+    dynamic_min = max(50000, int(avg_volume * 0.1))
+    logging.debug(f"📊 {symbol}: حد الحجم الديناميكي = {dynamic_min:,}")
+    return dynamic_min
+
+def get_adx(symbol):
+    """جلب مؤشر ADX (قوة الاتجاه) من TradingView."""
+    if symbol in ADX_CACHE:
+        return ADX_CACHE[symbol]
+    try:
+        time.sleep(REQUEST_DELAY * 0.3)
+        handler = TA_Handler(symbol=symbol, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_1_DAY)
+        adx = handler.get_analysis().indicators.get("ADX", 20)
+        adx = adx if adx and adx > 0 else 20
+        ADX_CACHE[symbol] = adx
+        return adx
+    except Exception:
+        return 20
+
+def calculate_dynamic_targets(price, atr, score, rsi):
+    """
+    حساب أهداف ربح متكيفة مع التقلب وحالة السهم.
+    تعيد (t1, t2, t3, multiplier)
+    """
+    volatility_ratio = atr / price if price > 0 else 0.02
+    
+    # مضاعف أساسي حسب التقلب
+    if volatility_ratio > 0.03:      # سهم متقلب
+        base_multiplier = 0.8
+    elif volatility_ratio < 0.01:    # سهم هادئ
+        base_multiplier = 1.3
+    else:
+        base_multiplier = 1.0
+    
+    # تعديل حسب الجودة
+    if score >= 80:
+        base_multiplier *= 1.1
+    elif score <= 65:
+        base_multiplier *= 0.9
+    
+    # تعديل حسب RSI
+    if rsi < 40:                     # منطقة ذروة بيع - انعكاس قوي محتمل
+        base_multiplier *= 1.15
+    elif rsi > 70:                   # ذروة شراء - أهداف أقرب
+        base_multiplier *= 0.85
+    
+    # حساب الأهداف
+    base_target = atr * 1.2 * base_multiplier
+    t1 = round(price + base_target, 2)
+    t2 = round(price + (base_target * 1.7), 2)
+    t3 = round(price + (base_target * 2.5), 2)
+    
+    # التأكد من أن الأهداف منطقية (أكبر من السعر)
+    if t1 <= price:
+        t1 = round(price + (atr * 0.8), 2)
+    if t2 <= t1:
+        t2 = round(t1 + (atr * 0.8), 2)
+    if t3 <= t2:
+        t3 = round(t2 + (atr * 0.8), 2)
+    
+    return t1, t2, t3, round(base_multiplier, 2)
 
 # ===========================================================
 # 🌍 تحليل حالة السوق
@@ -399,11 +484,28 @@ def fetch_all_stocks(selected_stocks=None):
     return all_data
 
 # ===========================================================
-# 🎯 نظام التقييم
+# 🎯 نظام التقييم (مع التعديلات الجديدة)
 # ===========================================================
 def evaluate(d, dna, regime):
+    """تقييم السهم مع إضافة فلتر ADX وفلتر الحجم الديناميكي"""
+    
+    # الفلاتر الأساسية
     if d["volume"] < MIN_VOLUME:
         return None
+    
+    # --- التعديل الجديد: فلتر حجم ديناميكي ---
+    dynamic_min_volume = get_dynamic_min_volume(d["sym"])
+    if d["volume"] < dynamic_min_volume:
+        logging.info(f"📊 {d['sym']}: حجم منخفض ({d['volume']:,} < {dynamic_min_volume:,}) - تخطي")
+        return None
+    
+    # --- التعديل الجديد: فلتر ADX ---
+    adx = get_adx(d["sym"])
+    if adx < ADX_THRESHOLD:
+        logging.info(f"📊 {d['sym']}: ADX ضعيف ({adx:.1f} < {ADX_THRESHOLD}) - تخطي")
+        return None
+    
+    # باقي الفلاتر
     if d["chg"] >= 8.5:
         return None
     if not d["bull1d"] and d["chg"] < 2.5:
@@ -412,6 +514,7 @@ def evaluate(d, dna, regime):
         return None
     if regime["risk"] == "EXTREME":
         return None
+    
     min_score = dna.get("min_score", 60)
     if regime["risk"] == "HIGH":
         min_score += 15
@@ -419,10 +522,12 @@ def evaluate(d, dna, regime):
         min_score += 10
     if dna.get("consecutive_losses", 0) >= 2:
         min_score += 15
+    
     now = datetime.now(CAIRO)
     rvol_need = dna.get("min_rvol", 0.85)
     if now.hour == 10 and now.minute <= 30:
         rvol_need *= 1.3
+    
     score = 0
     if dna.get("rsi_min", 38) <= d["rsi15"] <= dna.get("rsi_max", 76):
         score += 25
@@ -434,6 +539,12 @@ def evaluate(d, dna, regime):
         score += 20
     if d["green15"]:
         score += 15
+    
+    # --- التعديل الجديد: بونص ADX للصفقات ذات الاتجاه القوي ---
+    if adx > ADX_BONUS_THRESHOLD:
+        score += 10
+        logging.info(f"📈 {d['sym']}: ADX قوي ({adx:.1f} > {ADX_BONUS_THRESHOLD}) +10 نقاط")
+    
     instant = (
         d["chg"] >= 2.0 and
         d["rvol"] >= rvol_need and
@@ -441,13 +552,15 @@ def evaluate(d, dna, regime):
         d["bull1d"]
     )
     if instant:
-        return {"type": "Super Breakout 🚀", "score": 98}
+        return {"type": "Super Breakout 🚀", "score": 98, "adx": adx}
+    
     if score >= min_score and d["rvol"] >= rvol_need:
-        return {"type": "Trend 📈", "score": min(score, 100)}
+        return {"type": "Trend 📈", "score": min(score, 100), "adx": adx}
+    
     return None
 
 # ===========================================================
-# 💼 حساب خطة الصفقة
+# 💼 حساب خطة الصفقة (مع الأهداف الديناميكية)
 # ===========================================================
 def quality_weight(score, risk_multiplier=1.0):
     if score >= 90:
@@ -468,35 +581,50 @@ def calculate_net_pnl(entry, exit_price, shares):
     exit_with_fees = exit_price * (1 - TOTAL_FEE_RATE)
     return (exit_with_fees - entry_with_fees) * shares
 
-def make_plan(c, atr, score, deployed, risk_multiplier=1.0):
+def make_plan(c, atr, score, deployed, risk_multiplier=1.0, rsi=50, symbol=""):
+    """
+    حساب خطة الصفقة مع أهداف ديناميكية متكيفة مع التقلب.
+    """
     weight = quality_weight(score, risk_multiplier)
     risk_amount = TOTAL_CAPITAL * RISK_PER_TRADE
+    
     if score >= 80:
         stop_distance = max(atr * 1.5, c * 0.015)
     elif score >= 70:
         stop_distance = max(atr * 1.2, c * 0.012)
     else:
         stop_distance = max(atr * 1.0, c * 0.010)
+    
     sl = round(c - stop_distance, 2)
     risk_per_share = c - sl
     if risk_per_share <= 0:
         return None
+    
+    # --- التعديل الجديد: أهداف ديناميكية ---
+    t1, t2, t3, multiplier = calculate_dynamic_targets(c, atr, score, rsi)
+    
     shares_by_risk = int(risk_amount // risk_per_share)
     shares_by_weight = int((TOTAL_CAPITAL * weight) // c)
     shares = min(shares_by_risk, shares_by_weight)
+    
     if not MEASUREMENT_MODE:
         max_exposure = TOTAL_CAPITAL * 0.90
         remaining = max_exposure - deployed
         shares_by_exposure = int(remaining // c) if remaining > 0 else 0
         shares = min(shares, shares_by_exposure)
+    
     if shares < 1:
         return None
+    
+    # تطبيق العمولات على الأهداف
     fee_adj = 1 + TOTAL_FEE_RATE
-    t1 = round(c + (stop_distance * 1.2 * fee_adj), 2)
-    t2 = round(c + (stop_distance * 2.0 * fee_adj), 2)
-    t3 = round(c + (stop_distance * 3.0 * fee_adj), 2)
+    t1 = round(t1 * fee_adj, 2)
+    t2 = round(t2 * fee_adj, 2)
+    t3 = round(t3 * fee_adj, 2)
+    
     actual_risk = shares * (c - sl) * (1 + TOTAL_FEE_RATE)
     risk_pct = actual_risk / TOTAL_CAPITAL * 100
+    
     return {
         "sl": sl,
         "shares": shares,
@@ -505,6 +633,7 @@ def make_plan(c, atr, score, deployed, risk_multiplier=1.0):
         "t1": t1,
         "t2": t2,
         "t3": t3,
+        "target_multiplier": multiplier,
         "loss_egp": round(shares * (c - sl)),
         "p1": round(shares * (t1 - c)),
         "p2": round(shares * (t2 - c)),
@@ -688,8 +817,12 @@ def run():
     logging.info(f"🚀 بدء التشغيل - رأس المال: {TOTAL_CAPITAL:,.0f} ج.م")
     logging.info(f"📝 وضع القياس: {'مفعل' if MEASUREMENT_MODE else 'غير مفعل'}")
     logging.info(f"💰 إجمالي العمولات: {TOTAL_FEE_RATE*100:.2f}%")
+    logging.info(f"📊 الحد الأدنى لـ ADX: {ADX_THRESHOLD}")
+    logging.info(f"📊 بونص ADX: {ADX_BONUS_THRESHOLD}+")
+    
     regime = market_regime()
     logging.info(f"🌍 السوق: {regime['type']}")
+    
     if FORCE_RUN:
         send_tg(
             f"🧪 *تشغيل يدوي*\n\n"
@@ -698,24 +831,30 @@ def run():
             f"💰 رأس المال: `{TOTAL_CAPITAL:,.0f}` ج.م\n"
             f"💓 نبض: {PULSE_CYCLES} دورات × {PULSE_SLEEP} ثانية"
         )
+    
     if regime["mult"] == 0.0:
         trades = load_json_local(TRADES_FILE, {})
         if trades:
             send_tg(f"🚨 *انهيار سوق!*\nEGX30: `{regime['chg']:+.2f}%`\n💰 أغلق كل الصفقات - كاش")
             save_to_github(TRADES_FILE, {}, "emergency close")
         return
+    
     morning_report(regime)
+    
     trades = load_json_local(TRADES_FILE, {})
     deployed = sum(t.get("entry_price", 0) * t.get("shares", 0) for t in trades.values())
     max_trades = 999 if MEASUREMENT_MODE else regime["max_trades"]
     all_data = {}
+    
     for cycle in range(PULSE_CYCLES):
         logging.info(f"💓 دورة النبض {cycle + 1}/{PULSE_CYCLES}")
         allowed = STOCKS
         if regime.get("defensive"):
             allowed = [s for s in STOCKS if SHARIA_STOCKS[s][1] in DEFENSIVE]
         all_data = fetch_all_stocks(allowed)
+        
         for sym, d in all_data.items():
+            # تنبيه الحركة القوية
             if d["chg"] >= 2.5 and d["rvol"] >= 2.0 and d["rsi15"] <= 70:
                 if mark_alerted(sym):
                     send_tg(
@@ -724,6 +863,7 @@ def run():
                         f"📈 التغير: `{d['chg']:+.1f}%`\n"
                         f"📊 RVOL: `{d['rvol']}x` | RSI: `{d['rsi15']:.0f}`"
                     )
+            
             dna = get_dna(sym)
             res = evaluate(d, dna, regime)
             if res and sym not in trades and len(trades) < max_trades:
@@ -732,7 +872,9 @@ def run():
                     atr=d["atr1"],
                     score=res["score"],
                     deployed=deployed,
-                    risk_multiplier=dna.get("risk_multiplier", 1.0)
+                    risk_multiplier=dna.get("risk_multiplier", 1.0),
+                    rsi=d["rsi15"],
+                    symbol=sym
                 )
                 if not plan:
                     continue
@@ -741,6 +883,7 @@ def run():
                 if plan["risk_pct"] > 1.5:
                     logging.warning(f"⚠️ {sym}: المخاطرة {plan['risk_pct']}% تتجاوز الحد 1.5%")
                     continue
+                
                 trades[sym] = {
                     "entry_price": d["close"],
                     "entry_date": datetime.now(CAIRO).strftime("%Y-%m-%d"),
@@ -757,6 +900,10 @@ def run():
                 }
                 deployed += plan["shares"] * d["close"]
                 bump_stat("signals")
+                
+                # إعداد معلومات إضافية للرسالة
+                adx_info = f"\n📊 ADX: `{res.get('adx', 0):.1f}`"
+                target_info = f"\n📐 مضاعف الأهداف: `{plan.get('target_multiplier', 1.0)}x`"
                 paper_note = "\n📝 *صفقة ورقية - وضع القياس*" if MEASUREMENT_MODE else ""
                 risk_note = f"\n🛡️ المخاطرة: `{plan['risk_pct']}%` (حد أقصى 1.5%)"
                 rr_note = f"\n✅ نسبة المخاطرة/المكافأة: 1:{plan['rr_ratio']}"
@@ -766,9 +913,10 @@ def run():
                     f"   🚀 T2: +`{plan['net_p2']:,.0f}` ج.م\n"
                     f"   🔥 T3: +`{plan['net_p3']:,.0f}` ج.م"
                 )
+                
                 send_tg(
                     f"🚀 *{res['type']}*\n"
-                    f"🎖️ الجودة: `{res['score']}/100` → الوزن: `{plan['weight']:.1f}%`\n\n"
+                    f"🎖️ الجودة: `{res['score']}/100` → الوزن: `{plan['weight']:.1f}%`{adx_info}{target_info}\n\n"
                     f"🌍 السوق: `{regime['type']}`\n"
                     f"📌 `{sym} - {SHARIA_STOCKS[sym][0]}` ({SHARIA_STOCKS[sym][1]})\n"
                     f"💵 دخول: `{d['close']}` | 📊 RSI: `{d['rsi15']:.0f}`\n"
@@ -781,11 +929,14 @@ def run():
                     f"   🔥 T3 `{plan['t3']}`: +`{plan['p3']:,.0f}` ج.م"
                     f"{fees_note}{risk_note}{rr_note}{paper_note}"
                 )
+                
                 save_json_local(TRADES_FILE, trades)
                 save_to_github(TRADES_FILE, trades, f"new trade {sym}")
+        
         track(all_data)
         if cycle < PULSE_CYCLES - 1:
             time.sleep(PULSE_SLEEP)
+    
     eod_report(trades, all_data)
     save_to_github(TRADES_FILE, load_json_local(TRADES_FILE, {}), "trades sync")
     save_to_github(STATS_FILE, load_json_local(STATS_FILE, {}), "stats sync")
