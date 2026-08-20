@@ -1,0 +1,47 @@
+{
+  "initial_capital": 50000,
+  "current_capital": 52340,
+  "peak_capital": 53000,
+  "max_drawdown": -2.5,
+  "total_trades": 45,
+  "winning_trades": 28,
+  "losing_trades": 17,
+  "win_rate": 62.2,
+  "total_profit": 2340,
+  "total_loss": -1500,
+  "net_profit": 840,
+  "roi": 1.68,
+  "daily_history": {
+    "2026-08-20": {
+      "start_capital": 52000,
+      "end_capital": 52340,
+      "daily_pnl": 340,
+      "daily_roi": 0.65,
+      "trades": 3,
+      "wins": 2,
+      "losses": 1
+    }
+  },
+  "weekly_history": {
+    "2026-W34": {
+      "start_capital": 50000,
+      "end_capital": 52340,
+      "weekly_pnl": 2340,
+      "weekly_roi": 4.68,
+      "trades": 12,
+      "wins": 7,
+      "losses": 5
+    }
+  },
+  "monthly_history": {
+    "2026-08": {
+      "start_capital": 50000,
+      "end_capital": 52340,
+      "monthly_pnl": 2340,
+      "monthly_roi": 4.68,
+      "trades": 45,
+      "wins": 28,
+      "losses": 17
+    }
+  }
+}
