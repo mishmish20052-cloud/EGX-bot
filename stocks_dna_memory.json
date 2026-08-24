@@ -244,14 +244,16 @@
     "risk_multiplier": 1.0
   },
   "MASR": {
-    "min_rvol": 0.85,
-    "min_score": 60,
-    "rsi_min": 38,
-    "rsi_max": 76,
-    "total_trades": 0,
+    "min_rvol": 0.9299999999999999,
+    "min_score": 65,
+    "rsi_min": 40,
+    "rsi_max": 74,
+    "total_trades": 1,
     "winning_trades": 0,
-    "win_rate": 100.0,
-    "learned_sessions": 7
+    "win_rate": 0.0,
+    "learned_sessions": 8,
+    "consecutive_losses": 1,
+    "risk_multiplier": 1.0
   },
   "ORHD": {
     "min_rvol": 0.85,
