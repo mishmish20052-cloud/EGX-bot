@@ -112,14 +112,16 @@
     "learned_sessions": 7
   },
   "ICFC": {
-    "min_rvol": 0.85,
-    "min_score": 60,
-    "rsi_min": 38,
-    "rsi_max": 76,
-    "total_trades": 2,
-    "winning_trades": 2,
+    "min_rvol": 0.7999999999999999,
+    "min_score": 58,
+    "rsi_min": 37,
+    "rsi_max": 77,
+    "total_trades": 3,
+    "winning_trades": 3,
     "win_rate": 100.0,
-    "learned_sessions": 7
+    "learned_sessions": 8,
+    "consecutive_losses": 0,
+    "risk_multiplier": 1.05
   },
   "ARCC": {
     "min_rvol": 0.85,
