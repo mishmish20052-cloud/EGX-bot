@@ -1,23 +1,24 @@
 """
 نظام التداول الآلي المتكامل - البورصة المصرية (EGX33)
-الإصدار النهائي 6.0 - مع التعديلات ذات الأولوية العالية
+الإصدار 6.3 - مع الإغلاق الزمني التكيفي وإصلاح شامل للتكرار
 
 الميزات الجديدة:
+- إغلاق زمني متكيف مع حالة السوق (10/7/5/3/1 يوم حسب الحالة)
+- منع تكرار تقرير الصباح (حفظ على GitHub + متغير مؤقت)
+- منع تكرار الإغلاق الزمني لنفس السهم في الدورة
+- إصلاح تقرير الإغلاق (EOD) بإرساله في آخر دورة نبض
+- رفع جميع التغييرات إلى GitHub فوراً
+
+الميزات الأساسية:
 - فلتر حجم التداول الديناميكي (10% من متوسط الحجم)
 - أهداف ربح متكيفة مع التقلب (ATR)
 - فلتر ADX لقوة الاتجاه (ADX > 25)
 - بونص إضافي للصفقات ذات ADX قوي (>40)
-
-الميزات الأساسية:
 - تحديد رأس المال من متغير البيئة
 - خصم العمولات والانزلاق السعري والضرائب (0.375%)
-- تأخير بين طلبات API لتجنب حظر IP
-- مصدر بيانات احتياطي (yfinance)
 - وزن نسبي حسب الجودة (1-4% من رأس المال)
 - مخاطرة ثابتة لا تتجاوز 1.5%
 - نظام تعلم ذاتي (DNA) لكل سهم
-- تكيف مع 6 حالات للسوق
-- تقارير يومية وأسبوعية مع منع التكرار
 - توافق مع قائمة الأسهم الشرعية الرسمية
 - وضع القياس (التداول الورقي)
 """
@@ -59,10 +60,9 @@ MEASUREMENT_MODE = True
 PULSE_CYCLES = 4
 PULSE_SLEEP = 60
 RISK_PER_TRADE = 0.015
-TIME_STOP_DAYS = 5
 MIN_VOLUME = 50000
-ADX_THRESHOLD = 25          # الحد الأدنى لـ ADX للدخول
-ADX_BONUS_THRESHOLD = 40    # قيمة ADX للحصول على بونص إضافي
+ADX_THRESHOLD = 25
+ADX_BONUS_THRESHOLD = 40
 
 COMMISSION_RATE = 0.0015
 SLIPPAGE_RATE = 0.001
@@ -71,6 +71,32 @@ TOTAL_FEE_RATE = COMMISSION_RATE + SLIPPAGE_RATE + TAX_RATE
 
 REQUEST_DELAY = 0.5
 MAX_RETRIES = 5
+
+# ===========================================================
+# ⏱️ إعدادات الإغلاق الزمني التكيفي (جديد)
+# ===========================================================
+def get_time_stop_days(regime):
+    """
+    تحديد مدة الإغلاق الزمني بناءً على حالة السوق.
+    - STRONG_BULL: 10 أيام (نعطي فرصة أكبر في الصعود القوي)
+    - BULL: 7 أيام
+    - SIDEWAYS: 5 أيام (كما كان سابقاً)
+    - BEAR: 3 أيام (نخرج بسرعة في الهبوط)
+    - CRASH: يوم واحد (حماية قصوى)
+    """
+    regime_type = regime.get("type", "SIDEWAYS")
+    if "STRONG_BULL" in regime_type:
+        return 10
+    elif "BULL" in regime_type:
+        return 7
+    elif "SIDEWAYS" in regime_type:
+        return 5
+    elif "BEAR" in regime_type:
+        return 3
+    elif "CRASH" in regime_type:
+        return 1
+    else:
+        return 5  # القيمة الافتراضية الآمنة
 
 # ===========================================================
 # 📡 إعدادات تليجرام
@@ -123,13 +149,18 @@ STOCKS = list(SHARIA_STOCKS.keys())
 DEFENSIVE = {"FOOD", "HEALTHCARE", "TELECOM"}
 
 # ===========================================================
-# 🧠 ملفات الذاكرة
+# 🧠 ملفات الذاكرة والمتغيرات العامة لمنع التكرار
 # ===========================================================
 DNA_FILE = "stocks_dna_memory.json"
 TRADES_FILE = "active_trades.json"
 STATS_FILE = "daily_stats.json"
-ADX_CACHE = {}  # كاش لـ ADX لتجنب الطلبات المتكررة
+ADX_CACHE = {}
 VOLUME_CACHE = {}
+
+# متغيرات عامة لمنع تكرار الرسائل في نفس الدورة
+_last_report_day = None
+_last_eod_day = None
+_closed_this_run = set()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 CAIRO = ZoneInfo("Africa/Cairo")
@@ -176,6 +207,7 @@ def save_to_github(name, data, msg):
         payload["sha"] = sha
     try:
         requests.put(url, headers=headers, json=payload, timeout=15)
+        logging.info(f"✅ تم رفع {name} إلى GitHub: {msg}")
     except Exception as e:
         logging.error(f"GitHub خطأ: {e}")
 
@@ -247,6 +279,7 @@ def bump_stat(key, value=1):
     d = stats.setdefault(today, {"wins": 0, "losses": 0, "signals": 0})
     d[key] = d.get(key, 0) + value
     save_json_local(STATS_FILE, stats)
+    save_to_github(STATS_FILE, stats, f"stat update {key}")
 
 def mark_alerted(sym):
     stats = load_json_local(STATS_FILE, {})
@@ -257,21 +290,19 @@ def mark_alerted(sym):
         return False
     alerted[sym] = today
     save_json_local(STATS_FILE, stats)
+    save_to_github(STATS_FILE, stats, f"alerted {sym}")
     return True
 
 # ===========================================================
-# 📊 دوال التحليل الفني المتقدم (التعديلات الجديدة)
+# 📊 دوال التحليل الفني المتقدم
 # ===========================================================
-
 def get_average_volume(symbol, days=20):
-    """جلب متوسط حجم التداول لآخر N يوم."""
     if symbol in VOLUME_CACHE:
         return VOLUME_CACHE[symbol]
     try:
         handler = TA_Handler(symbol=symbol, screener="egypt", exchange="EGX", interval=Interval.INTERVAL_1_DAY)
         indicators = handler.get_analysis().indicators
         volume = indicators.get("volume", 0)
-        # تقدير متوسط الحجم (نستخدم الحجم الحالي كتقدير مع تعديل)
         avg_volume = max(volume, 100000)
         VOLUME_CACHE[symbol] = avg_volume
         return avg_volume
@@ -279,14 +310,10 @@ def get_average_volume(symbol, days=20):
         return 100000
 
 def get_dynamic_min_volume(symbol):
-    """حساب الحد الأدنى للحجم ديناميكياً."""
     avg_volume = get_average_volume(symbol)
-    dynamic_min = max(50000, int(avg_volume * 0.1))
-    logging.debug(f"📊 {symbol}: حد الحجم الديناميكي = {dynamic_min:,}")
-    return dynamic_min
+    return max(50000, int(avg_volume * 0.1))
 
 def get_adx(symbol):
-    """جلب مؤشر ADX (قوة الاتجاه) من TradingView."""
     if symbol in ADX_CACHE:
         return ADX_CACHE[symbol]
     try:
@@ -300,46 +327,31 @@ def get_adx(symbol):
         return 20
 
 def calculate_dynamic_targets(price, atr, score, rsi):
-    """
-    حساب أهداف ربح متكيفة مع التقلب وحالة السهم.
-    تعيد (t1, t2, t3, multiplier)
-    """
     volatility_ratio = atr / price if price > 0 else 0.02
-    
-    # مضاعف أساسي حسب التقلب
-    if volatility_ratio > 0.03:      # سهم متقلب
+    if volatility_ratio > 0.03:
         base_multiplier = 0.8
-    elif volatility_ratio < 0.01:    # سهم هادئ
+    elif volatility_ratio < 0.01:
         base_multiplier = 1.3
     else:
         base_multiplier = 1.0
-    
-    # تعديل حسب الجودة
     if score >= 80:
         base_multiplier *= 1.1
     elif score <= 65:
         base_multiplier *= 0.9
-    
-    # تعديل حسب RSI
-    if rsi < 40:                     # منطقة ذروة بيع - انعكاس قوي محتمل
+    if rsi < 40:
         base_multiplier *= 1.15
-    elif rsi > 70:                   # ذروة شراء - أهداف أقرب
+    elif rsi > 70:
         base_multiplier *= 0.85
-    
-    # حساب الأهداف
     base_target = atr * 1.2 * base_multiplier
     t1 = round(price + base_target, 2)
     t2 = round(price + (base_target * 1.7), 2)
     t3 = round(price + (base_target * 2.5), 2)
-    
-    # التأكد من أن الأهداف منطقية (أكبر من السعر)
     if t1 <= price:
         t1 = round(price + (atr * 0.8), 2)
     if t2 <= t1:
         t2 = round(t1 + (atr * 0.8), 2)
     if t3 <= t2:
         t3 = round(t2 + (atr * 0.8), 2)
-    
     return t1, t2, t3, round(base_multiplier, 2)
 
 # ===========================================================
@@ -484,28 +496,19 @@ def fetch_all_stocks(selected_stocks=None):
     return all_data
 
 # ===========================================================
-# 🎯 نظام التقييم (مع التعديلات الجديدة)
+# 🎯 نظام التقييم
 # ===========================================================
 def evaluate(d, dna, regime):
-    """تقييم السهم مع إضافة فلتر ADX وفلتر الحجم الديناميكي"""
-    
-    # الفلاتر الأساسية
     if d["volume"] < MIN_VOLUME:
         return None
-    
-    # --- التعديل الجديد: فلتر حجم ديناميكي ---
     dynamic_min_volume = get_dynamic_min_volume(d["sym"])
     if d["volume"] < dynamic_min_volume:
         logging.info(f"📊 {d['sym']}: حجم منخفض ({d['volume']:,} < {dynamic_min_volume:,}) - تخطي")
         return None
-    
-    # --- التعديل الجديد: فلتر ADX ---
     adx = get_adx(d["sym"])
     if adx < ADX_THRESHOLD:
         logging.info(f"📊 {d['sym']}: ADX ضعيف ({adx:.1f} < {ADX_THRESHOLD}) - تخطي")
         return None
-    
-    # باقي الفلاتر
     if d["chg"] >= 8.5:
         return None
     if not d["bull1d"] and d["chg"] < 2.5:
@@ -514,7 +517,6 @@ def evaluate(d, dna, regime):
         return None
     if regime["risk"] == "EXTREME":
         return None
-    
     min_score = dna.get("min_score", 60)
     if regime["risk"] == "HIGH":
         min_score += 15
@@ -522,12 +524,10 @@ def evaluate(d, dna, regime):
         min_score += 10
     if dna.get("consecutive_losses", 0) >= 2:
         min_score += 15
-    
     now = datetime.now(CAIRO)
     rvol_need = dna.get("min_rvol", 0.85)
     if now.hour == 10 and now.minute <= 30:
         rvol_need *= 1.3
-    
     score = 0
     if dna.get("rsi_min", 38) <= d["rsi15"] <= dna.get("rsi_max", 76):
         score += 25
@@ -539,12 +539,9 @@ def evaluate(d, dna, regime):
         score += 20
     if d["green15"]:
         score += 15
-    
-    # --- التعديل الجديد: بونص ADX للصفقات ذات الاتجاه القوي ---
     if adx > ADX_BONUS_THRESHOLD:
         score += 10
         logging.info(f"📈 {d['sym']}: ADX قوي ({adx:.1f} > {ADX_BONUS_THRESHOLD}) +10 نقاط")
-    
     instant = (
         d["chg"] >= 2.0 and
         d["rvol"] >= rvol_need and
@@ -553,26 +550,19 @@ def evaluate(d, dna, regime):
     )
     if instant:
         return {"type": "Super Breakout 🚀", "score": 98, "adx": adx}
-    
     if score >= min_score and d["rvol"] >= rvol_need:
         return {"type": "Trend 📈", "score": min(score, 100), "adx": adx}
-    
     return None
 
 # ===========================================================
-# 💼 حساب خطة الصفقة (مع الأهداف الديناميكية)
+# 💼 حساب خطة الصفقة
 # ===========================================================
 def quality_weight(score, risk_multiplier=1.0):
-    if score >= 90:
-        base = 0.040
-    elif score >= 80:
-        base = 0.032
-    elif score >= 70:
-        base = 0.025
-    elif score >= 60:
-        base = 0.018
-    else:
-        base = 0.010
+    if score >= 90: base = 0.040
+    elif score >= 80: base = 0.032
+    elif score >= 70: base = 0.025
+    elif score >= 60: base = 0.018
+    else: base = 0.010
     adjusted = base * risk_multiplier
     return min(adjusted, 0.050)
 
@@ -582,62 +572,37 @@ def calculate_net_pnl(entry, exit_price, shares):
     return (exit_with_fees - entry_with_fees) * shares
 
 def make_plan(c, atr, score, deployed, risk_multiplier=1.0, rsi=50, symbol=""):
-    """
-    حساب خطة الصفقة مع أهداف ديناميكية متكيفة مع التقلب.
-    """
     weight = quality_weight(score, risk_multiplier)
     risk_amount = TOTAL_CAPITAL * RISK_PER_TRADE
-    
-    if score >= 80:
-        stop_distance = max(atr * 1.5, c * 0.015)
-    elif score >= 70:
-        stop_distance = max(atr * 1.2, c * 0.012)
-    else:
-        stop_distance = max(atr * 1.0, c * 0.010)
-    
+    if score >= 80: stop_distance = max(atr * 1.5, c * 0.015)
+    elif score >= 70: stop_distance = max(atr * 1.2, c * 0.012)
+    else: stop_distance = max(atr * 1.0, c * 0.010)
     sl = round(c - stop_distance, 2)
     risk_per_share = c - sl
-    if risk_per_share <= 0:
-        return None
-    
-    # --- التعديل الجديد: أهداف ديناميكية ---
+    if risk_per_share <= 0: return None
     t1, t2, t3, multiplier = calculate_dynamic_targets(c, atr, score, rsi)
-    
     shares_by_risk = int(risk_amount // risk_per_share)
     shares_by_weight = int((TOTAL_CAPITAL * weight) // c)
     shares = min(shares_by_risk, shares_by_weight)
-    
     if not MEASUREMENT_MODE:
         max_exposure = TOTAL_CAPITAL * 0.90
         remaining = max_exposure - deployed
         shares_by_exposure = int(remaining // c) if remaining > 0 else 0
         shares = min(shares, shares_by_exposure)
-    
-    if shares < 1:
-        return None
-    
-    # تطبيق العمولات على الأهداف
+    if shares < 1: return None
     fee_adj = 1 + TOTAL_FEE_RATE
     t1 = round(t1 * fee_adj, 2)
     t2 = round(t2 * fee_adj, 2)
     t3 = round(t3 * fee_adj, 2)
-    
     actual_risk = shares * (c - sl) * (1 + TOTAL_FEE_RATE)
     risk_pct = actual_risk / TOTAL_CAPITAL * 100
-    
     return {
-        "sl": sl,
-        "shares": shares,
-        "weight": weight * 100,
+        "sl": sl, "shares": shares, "weight": weight * 100,
         "risk_pct": round(risk_pct, 2),
-        "t1": t1,
-        "t2": t2,
-        "t3": t3,
+        "t1": t1, "t2": t2, "t3": t3,
         "target_multiplier": multiplier,
         "loss_egp": round(shares * (c - sl)),
-        "p1": round(shares * (t1 - c)),
-        "p2": round(shares * (t2 - c)),
-        "p3": round(shares * (t3 - c)),
+        "p1": round(shares * (t1 - c)), "p2": round(shares * (t2 - c)), "p3": round(shares * (t3 - c)),
         "net_p1": round(shares * (t1 - c) * (1 - TOTAL_FEE_RATE)),
         "net_p2": round(shares * (t2 - c) * (1 - TOTAL_FEE_RATE)),
         "net_p3": round(shares * (t3 - c) * (1 - TOTAL_FEE_RATE)),
@@ -645,13 +610,19 @@ def make_plan(c, atr, score, deployed, risk_multiplier=1.0, rsi=50, symbol=""):
     }
 
 # ===========================================================
-# 🔄 متابعة الصفقات المفتوحة
+# 🔄 متابعة الصفقات المفتوحة (مع الإغلاق الزمني التكيفي)
 # ===========================================================
-def track(all_data):
+def track(all_data, regime):
+    """متابعة الصفقات المفتوحة مع إغلاق زمني متكيف حسب حالة السوق"""
+    global _closed_this_run
     trades = load_json_local(TRADES_FILE, {})
     dna_mem = load_json_local(DNA_FILE, {})
     updated = False
     now = datetime.now(CAIRO)
+    
+    # حساب مدة الإغلاق الزمني بناءً على حالة السوق الحالية
+    time_stop_days = get_time_stop_days(regime)
+    
     for sym, t in list(trades.items()):
         if sym not in all_data:
             continue
@@ -660,12 +631,17 @@ def track(all_data):
         dna = dna_mem.setdefault(sym, get_dna(sym))
         entry_date_str = t.get("entry_date", datetime.now(CAIRO).strftime("%Y-%m-%d"))
         days = (now.replace(tzinfo=None) - datetime.strptime(entry_date_str, "%Y-%m-%d")).days
-        if days >= TIME_STOP_DAYS and not t.get("t1_hit", False):
+        
+        # --- الإغلاق الزمني المتكيف مع منع التكرار في نفس الدورة ---
+        if days >= time_stop_days and not t.get("t1_hit", False):
+            if sym in _closed_this_run:
+                continue
+            _closed_this_run.add(sym)
             remaining = t.get("remaining", t.get("shares", 0))
             net_pnl = calculate_net_pnl(t.get("entry_price", 0), price, remaining)
             send_tg(
-                f"⏳ *إغلاق زمني*\n"
-                f"📌 `{sym} - {name}` راكد {days} أيام\n"
+                f"⏳ *إغلاق زمني متكيف*\n"
+                f"📌 `{sym} - {name}` راكد {days} أيام (الحد: {time_stop_days})\n"
                 f"🛒 *بع الكل:* `{remaining}` سهم\n"
                 f"💸 صافي الخسارة: `{net_pnl:,.0f}` ج.م"
             )
@@ -675,6 +651,8 @@ def track(all_data):
             del trades[sym]
             updated = True
             continue
+        
+        # --- باقي منطق التتبع (T1, T2, T3, Stop) ---
         remaining = t.get("remaining", t.get("shares", 0))
         if not t.get("t3_hit", False) and price >= t.get("t3", 999999):
             t["t3_hit"] = True
@@ -694,6 +672,7 @@ def track(all_data):
             del trades[sym]
             updated = True
             continue
+        
         if t.get("t1_hit", False) and not t.get("t2_hit", False) and price >= t.get("t2", 999999):
             t["t2_hit"] = True
             sold = max(1, math.floor(t.get("shares", 0) * 0.30))
@@ -709,6 +688,7 @@ def track(all_data):
                 f"🛑 *الستوب الجديد:* `{t.get('t1', 0)}` (قفل ربح)"
             )
             updated = True
+        
         if not t.get("t1_hit", False) and price >= t.get("t1", 999999):
             t["t1_hit"] = True
             sold = max(1, math.floor(t.get("shares", 0) * 0.40))
@@ -724,6 +704,7 @@ def track(all_data):
                 f"🛑 *الستوب الجديد:* `{t.get('entry_price', 0)}` (نقطة التعادل)"
             )
             updated = True
+        
         current_stop = t.get("current_stop", t.get("sl", 0))
         if price <= current_stop:
             sold = t.get("remaining", t.get("shares", 0))
@@ -739,6 +720,7 @@ def track(all_data):
             bump_stat("losses")
             del trades[sym]
             updated = True
+    
     if updated:
         save_json_local(TRADES_FILE, trades)
         save_to_github(TRADES_FILE, trades, "trades update")
@@ -746,14 +728,20 @@ def track(all_data):
         save_to_github(DNA_FILE, dna_mem, "DNA update")
 
 # ===========================================================
-# 📋 التقارير
+# 📋 التقارير (مع منع التكرار)
 # ===========================================================
 def morning_report(regime):
+    global _last_report_day
     stats = load_json_local(STATS_FILE, {})
     today = datetime.now(CAIRO).strftime("%Y-%m-%d")
+    
     if stats.get("_meta", {}).get("report") == today:
         logging.info("📋 تقرير الصباح تم إرساله مسبقاً اليوم - تخطي")
         return
+    if _last_report_day == today:
+        logging.info("📋 تقرير الصباح تم إرساله مسبقاً في هذه الدورة - تخطي")
+        return
+    
     mode_note = "\n📝 *وضع القياس مفعل: رصد بلا حدود*" if MEASUREMENT_MODE else ""
     send_tg(
         f"🌍 *تقرير الصباح*\n\n"
@@ -762,9 +750,12 @@ def morning_report(regime):
         f"⚠️ المخاطرة: `{regime['risk']}`\n"
         f"💼 أقصى صفقات اليوم: `{regime['max_trades']}`{mode_note}"
     )
+    
     stats["_meta"] = stats.get("_meta", {})
     stats["_meta"]["report"] = today
     save_json_local(STATS_FILE, stats)
+    save_to_github(STATS_FILE, stats, "morning report sent")
+    _last_report_day = today
 
 def eod_adaptation(all_data):
     dna_mem = load_json_local(DNA_FILE, {})
@@ -781,14 +772,26 @@ def eod_adaptation(all_data):
     save_to_github(DNA_FILE, dna_mem, "DNA EOD adaptation")
     return reports
 
-def eod_report(trades, all_data):
+def eod_report(trades, all_data, cycle):
+    """تقرير نهاية اليوم مع منع التكرار وإرساله في آخر دورة"""
+    global _last_eod_day
     now = datetime.now(CAIRO)
-    if not (now.hour == 14 and now.minute >= 15):
-        return
-    stats = load_json_local(STATS_FILE, {})
     today = now.strftime("%Y-%m-%d")
+    
+    if _last_eod_day == today:
+        return
+    
+    stats = load_json_local(STATS_FILE, {})
     if stats.get("_meta", {}).get("eod") == today:
         return
+    
+    # الشرط: إما بعد الساعة 14:15، أو في آخر دورة نبض (قرب نهاية الجلسة)
+    is_eod_time = (now.hour == 14 and now.minute >= 15)
+    is_last_pulse = (cycle == PULSE_CYCLES - 1 and now.hour >= 13)
+    
+    if not (is_eod_time or is_last_pulse):
+        return
+    
     d = stats.get(today, {"wins": 0, "losses": 0, "signals": 0})
     msg = (
         f"🌙 *تقرير الإغلاق*\n\n"
@@ -803,25 +806,32 @@ def eod_report(trades, all_data):
         tot_l = sum(v.get("losses", 0) for k, v in stats.items() if k != "_meta")
         msg += f"\n\n📊 *ملخص الأسبوع:* ✅ {tot_w} | 🛑 {tot_l}"
     send_tg(msg)
+    
     adapt = eod_adaptation(all_data)
     if adapt:
         send_tg("🧬 *تكيف DNA اليومي*\n\n" + "\n".join(adapt[:5]))
+    
     stats["_meta"] = stats.get("_meta", {})
     stats["_meta"]["eod"] = today
     save_json_local(STATS_FILE, stats)
+    save_to_github(STATS_FILE, stats, "eod report sent")
+    _last_eod_day = today
 
 # ===========================================================
 # 🚀 المحرك الرئيسي
 # ===========================================================
 def run():
+    global _closed_this_run
+    
     logging.info(f"🚀 بدء التشغيل - رأس المال: {TOTAL_CAPITAL:,.0f} ج.م")
     logging.info(f"📝 وضع القياس: {'مفعل' if MEASUREMENT_MODE else 'غير مفعل'}")
     logging.info(f"💰 إجمالي العمولات: {TOTAL_FEE_RATE*100:.2f}%")
-    logging.info(f"📊 الحد الأدنى لـ ADX: {ADX_THRESHOLD}")
-    logging.info(f"📊 بونص ADX: {ADX_BONUS_THRESHOLD}+")
     
     regime = market_regime()
     logging.info(f"🌍 السوق: {regime['type']}")
+    
+    # إعادة تعيين مجموعة الإغلاق في بداية كل تشغيل
+    _closed_this_run = set()
     
     if FORCE_RUN:
         send_tg(
@@ -876,10 +886,8 @@ def run():
                     rsi=d["rsi15"],
                     symbol=sym
                 )
-                if not plan:
-                    continue
-                if plan["rr_ratio"] < 1.5:
-                    continue
+                if not plan: continue
+                if plan["rr_ratio"] < 1.5: continue
                 if plan["risk_pct"] > 1.5:
                     logging.warning(f"⚠️ {sym}: المخاطرة {plan['risk_pct']}% تتجاوز الحد 1.5%")
                     continue
@@ -901,7 +909,6 @@ def run():
                 deployed += plan["shares"] * d["close"]
                 bump_stat("signals")
                 
-                # إعداد معلومات إضافية للرسالة
                 adx_info = f"\n📊 ADX: `{res.get('adx', 0):.1f}`"
                 target_info = f"\n📐 مضاعف الأهداف: `{plan.get('target_multiplier', 1.0)}x`"
                 paper_note = "\n📝 *صفقة ورقية - وضع القياس*" if MEASUREMENT_MODE else ""
@@ -933,11 +940,17 @@ def run():
                 save_json_local(TRADES_FILE, trades)
                 save_to_github(TRADES_FILE, trades, f"new trade {sym}")
         
-        track(all_data)
+        # متابعة الصفقات مع تمرير حالة السوق للإغلاق الزمني التكيفي
+        track(all_data, regime)
+        
+        # محاولة إرسال تقرير الإغلاق بعد كل دورة (سيتم التحقق داخلياً)
+        eod_report(trades, all_data, cycle)
+        
         if cycle < PULSE_CYCLES - 1:
             time.sleep(PULSE_SLEEP)
     
-    eod_report(trades, all_data)
+    # محاولة أخيرة لتقرير الإغلاق في نهاية جميع الدورات
+    eod_report(trades, all_data, PULSE_CYCLES - 1)
     save_to_github(TRADES_FILE, load_json_local(TRADES_FILE, {}), "trades sync")
     save_to_github(STATS_FILE, load_json_local(STATS_FILE, {}), "stats sync")
     logging.info("✅ اكتمل التشغيل بنجاح")
