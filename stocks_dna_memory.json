@@ -20,28 +20,24 @@
     "learned_sessions": 7
   },
   "SKPC": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 1,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
     "winning_trades": 0,
-    "win_rate": 0.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 7
   },
   "JUFO": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 1,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
     "winning_trades": 0,
-    "win_rate": 0.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 7
   },
   "EFIH": {
     "min_rvol": 0.85,
@@ -84,16 +80,14 @@
     "learned_sessions": 7
   },
   "PHDC": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 2,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 1,
     "winning_trades": 1,
-    "win_rate": 50.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 7
   },
   "ADIB": {
     "min_rvol": 0.85,
@@ -116,16 +110,14 @@
     "learned_sessions": 7
   },
   "ICFC": {
-    "min_rvol": 0.7999999999999999,
-    "min_score": 58,
-    "rsi_min": 37,
-    "rsi_max": 77,
-    "total_trades": 3,
-    "winning_trades": 3,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 2,
+    "winning_trades": 2,
     "win_rate": 100.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 0,
-    "risk_multiplier": 1.05
+    "learned_sessions": 7
   },
   "ARCC": {
     "min_rvol": 0.85,
@@ -238,28 +230,24 @@
     "learned_sessions": 7
   },
   "IFAP": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 1,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
     "winning_trades": 0,
-    "win_rate": 0.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 7
   },
   "MASR": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 1,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
     "winning_trades": 0,
-    "win_rate": 0.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 7
   },
   "ORHD": {
     "min_rvol": 0.85,
@@ -282,16 +270,14 @@
     "learned_sessions": 7
   },
   "TMGH": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 1,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
     "winning_trades": 0,
-    "win_rate": 0.0,
-    "learned_sessions": 8,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 7
   },
   "CIRA": {
     "min_rvol": 0.85,
@@ -334,15 +320,13 @@
     "learned_sessions": 6
   },
   "ETRS": {
-    "min_rvol": 0.9299999999999999,
-    "min_score": 65,
-    "rsi_min": 40,
-    "rsi_max": 74,
-    "total_trades": 1,
+    "min_rvol": 0.85,
+    "min_score": 60,
+    "rsi_min": 38,
+    "rsi_max": 76,
+    "total_trades": 0,
     "winning_trades": 0,
-    "win_rate": 0.0,
-    "learned_sessions": 7,
-    "consecutive_losses": 1,
-    "risk_multiplier": 1.0
+    "win_rate": 100.0,
+    "learned_sessions": 6
   }
 }
