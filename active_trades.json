@@ -1,17 +1,1 @@
-{
-  "EFIH": {
-    "entry_price": 23.99,
-    "entry_date": "2026-08-13",
-    "shares": 250,
-    "remaining": 150,
-    "sl": 23.27,
-    "current_stop": 23.99,
-    "t1": 24.57,
-    "t2": 25.19,
-    "t3": 25.91,
-    "t1_hit": true,
-    "t2_hit": false,
-    "t3_hit": false,
-    "recorded": true
-  }
-}
+{}
