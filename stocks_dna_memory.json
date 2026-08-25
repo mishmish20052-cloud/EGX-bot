@@ -40,14 +40,16 @@
     "learned_sessions": 8
   },
   "EFIH": {
-    "min_rvol": 0.85,
-    "min_score": 60,
-    "rsi_min": 38,
-    "rsi_max": 76,
-    "total_trades": 1,
+    "min_rvol": 0.9299999999999999,
+    "min_score": 65,
+    "rsi_min": 40,
+    "rsi_max": 74,
+    "total_trades": 2,
     "winning_trades": 1,
-    "win_rate": 100.0,
-    "learned_sessions": 8
+    "win_rate": 50.0,
+    "learned_sessions": 9,
+    "consecutive_losses": 1,
+    "risk_multiplier": 1.0
   },
   "EGAL": {
     "min_rvol": 0.85,
