@@ -7,7 +7,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "AMOC": {
     "min_rvol": 0.85,
@@ -17,7 +17,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "SKPC": {
     "min_rvol": 0.85,
@@ -27,7 +27,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "JUFO": {
     "min_rvol": 0.85,
@@ -37,7 +37,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "EFIH": {
     "min_rvol": 0.85,
@@ -47,7 +47,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "EGAL": {
     "min_rvol": 0.85,
@@ -57,7 +57,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "RMDA": {
     "min_rvol": 0.85,
@@ -67,7 +67,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "OLFI": {
     "min_rvol": 0.85,
@@ -77,7 +77,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "PHDC": {
     "min_rvol": 0.85,
@@ -87,7 +87,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ADIB": {
     "min_rvol": 0.85,
@@ -97,7 +97,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "FAIT": {
     "min_rvol": 0.85,
@@ -107,7 +107,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ICFC": {
     "min_rvol": 0.85,
@@ -117,7 +117,7 @@
     "total_trades": 2,
     "winning_trades": 2,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ARCC": {
     "min_rvol": 0.85,
@@ -127,7 +127,7 @@
     "total_trades": 2,
     "winning_trades": 2,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "MCQE": {
     "min_rvol": 0.85,
@@ -137,7 +137,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "LCSW": {
     "min_rvol": 0.85,
@@ -147,7 +147,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ORAS": {
     "min_rvol": 0.85,
@@ -157,7 +157,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ATQA": {
     "min_rvol": 0.85,
@@ -167,7 +167,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ORWE": {
     "min_rvol": 0.85,
@@ -177,7 +177,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "MTIE": {
     "min_rvol": 0.85,
@@ -187,7 +187,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ACGC": {
     "min_rvol": 0.85,
@@ -197,7 +197,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ISPH": {
     "min_rvol": 0.85,
@@ -207,7 +207,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "EFID": {
     "min_rvol": 0.85,
@@ -217,7 +217,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "MPCO": {
     "min_rvol": 0.85,
@@ -227,7 +227,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "IFAP": {
     "min_rvol": 0.85,
@@ -237,7 +237,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "MASR": {
     "min_rvol": 0.85,
@@ -247,7 +247,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ORHD": {
     "min_rvol": 0.85,
@@ -257,7 +257,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "OCDI": {
     "min_rvol": 0.85,
@@ -267,7 +267,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "TMGH": {
     "min_rvol": 0.85,
@@ -277,7 +277,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "CIRA": {
     "min_rvol": 0.85,
@@ -287,7 +287,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "RACC": {
     "min_rvol": 0.85,
@@ -297,7 +297,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 13
+    "learned_sessions": 14
   },
   "ETEL": {
     "min_rvol": 0.85,
@@ -307,7 +307,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 12
+    "learned_sessions": 13
   },
   "EGAS": {
     "min_rvol": 0.85,
@@ -317,7 +317,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 12
+    "learned_sessions": 13
   },
   "ETRS": {
     "min_rvol": 0.85,
@@ -327,6 +327,6 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 12
+    "learned_sessions": 13
   }
 }
