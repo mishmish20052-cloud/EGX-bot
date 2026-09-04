@@ -1,5 +1,5 @@
-yfinance
+requests
+tradingview_ta
 pandas
 numpy
-requests
-tradingview-ta
+yfinance
