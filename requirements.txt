@@ -1,2 +1,5 @@
 requests
-tradingview-ta
+tradingview_ta
+pandas
+numpy
+yfinance
