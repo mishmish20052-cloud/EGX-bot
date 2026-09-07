@@ -3,7 +3,7 @@
     "report": "2026-09-07",
     "eod": "2026-09-03",
     "circuit_breaker": {
-      "day": "2026-09-04",
+      "day": "2026-09-07",
       "consecutive_losses": 0,
       "tripped": false
     }
