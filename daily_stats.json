@@ -1,7 +1,7 @@
 {
   "_meta": {
     "report": "2026-09-10",
-    "eod": "2026-09-03",
+    "eod": "2026-09-10",
     "circuit_breaker": {
       "day": "2026-09-10",
       "consecutive_losses": 0,
