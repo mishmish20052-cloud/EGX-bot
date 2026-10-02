@@ -37,7 +37,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "EFIH": {
     "min_rvol": 0.85,
@@ -67,7 +67,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "OLFI": {
     "min_rvol": 0.85,
@@ -77,7 +77,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "PHDC": {
     "min_rvol": 0.85,
@@ -207,7 +207,7 @@
     "total_trades": 1,
     "winning_trades": 0,
     "win_rate": 0.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "EFID": {
     "min_rvol": 0.85,
@@ -217,7 +217,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "MPCO": {
     "min_rvol": 0.85,
@@ -227,7 +227,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "IFAP": {
     "min_rvol": 0.85,
@@ -237,7 +237,7 @@
     "total_trades": 0,
     "winning_trades": 0,
     "win_rate": 100.0,
-    "learned_sessions": 16
+    "learned_sessions": 17
   },
   "MASR": {
     "min_rvol": 0.85,
@@ -307,7 +307,7 @@
     "total_trades": 1,
     "winning_trades": 1,
     "win_rate": 100.0,
-    "learned_sessions": 15
+    "learned_sessions": 16
   },
   "EGAS": {
     "min_rvol": 0.85,
